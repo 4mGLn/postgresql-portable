@@ -1,0 +1,401 @@
+name: Release Portable PostgreSQL
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - ci/postgresql-release-config.json
+      - scripts/ci/**
+      - .github/workflows/release-and-publish.yml
+  workflow_dispatch:
+    inputs:
+      majors:
+        description: "Comma-separated PostgreSQL majors to release (default: all tracked)"
+        required: false
+        default: ""
+      publish:
+        description: "Publish GitHub releases after a successful build"
+        required: false
+        default: "true"
+        type: choice
+        options:
+          - "true"
+          - "false"
+
+permissions:
+  contents: write
+  packages: read
+
+concurrency:
+  group: release-portable-postgresql-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  plan:
+    runs-on: ubuntu-latest
+    outputs:
+      majors: ${{ steps.resolve.outputs.majors }}
+      should_publish: ${{ steps.resolve.outputs.should_publish }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Resolve build majors
+        id: resolve
+        env:
+          MAJORS_INPUT: ${{ github.event.inputs.majors }}
+          PUBLISH_INPUT: ${{ github.event.inputs.publish }}
+          EVENT_NAME: ${{ github.event_name }}
+        run: |
+          set -euo pipefail
+          majors_input="${MAJORS_INPUT}"
+
+          if [[ -n "${majors_input}" ]]; then
+            majors_json="$(
+              printf '%s' "$majors_input" \
+                | tr ',' '\n' \
+                | sed 's/[[:space:]]//g' \
+                | sed '/^$/d' \
+                | jq -R . \
+                | jq -cs .
+            )"
+          else
+            majors_json="$(jq -c '.postgresql.tracked_majors' ci/postgresql-release-config.json)"
+          fi
+
+          should_publish='true'
+          if [[ "$EVENT_NAME" == "workflow_dispatch" ]]; then
+            should_publish="${PUBLISH_INPUT}"
+          fi
+
+          echo "majors=${majors_json}" >> "$GITHUB_OUTPUT"
+          echo "should_publish=${should_publish}" >> "$GITHUB_OUTPUT"
+
+  build-linux:
+    needs: plan
+    runs-on: ubuntu-24.04
+    container:
+      image: ghcr.io/${{ github.repository }}/build-manylinux2014:latest
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+    strategy:
+      fail-fast: false
+      matrix:
+        major: ${{ fromJson(needs.plan.outputs.majors) }}
+    env:
+      CCACHE_DIR: /ccache
+      CC: ccache gcc
+      CXX: ccache g++
+    steps:
+      - name: Compute cache week key
+        id: week
+        run: echo "key=$(date +%Y-W%V)" >> "$GITHUB_OUTPUT"
+
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Linux build dependencies (safety net)
+        run: |
+          set -euo pipefail
+          yum install -y epel-release
+          yum install -y \
+            bison \
+            ccache \
+            diffutils \
+            file \
+            findutils \
+            flex \
+            gcc \
+            gcc-c++ \
+            git \
+            gzip \
+            gettext-devel \
+            jq \
+            libicu-devel \
+            make \
+            openldap-devel \
+            patch \
+            patchelf \
+            perl \
+            readline-devel \
+            tar \
+            unzip \
+            which \
+            xz \
+            zlib-devel \
+            zip
+
+      - name: Restore ccache
+        uses: actions/cache@v4
+        with:
+          path: /ccache
+          key: ccache-linux-pg${{ matrix.major }}-${{ steps.week.outputs.key }}
+          restore-keys: |
+            ccache-linux-pg${{ matrix.major }}-
+
+      - name: Configure ccache
+        run: |
+          mkdir -p "$CCACHE_DIR"
+          ccache --max-size=500M
+          ccache --zero-stats
+
+      - name: Build portable PostgreSQL archive set
+        run: |
+          set -euo pipefail
+          chmod +x scripts/ci/*.sh scripts/*.sh
+          scripts/ci/build_portable_postgresql.sh \
+            --config ci/postgresql-release-config.json \
+            --major "${{ matrix.major }}" \
+            --target unknown-linux_x86_64 \
+            --output-dir dist
+
+      - name: Show ccache stats
+        if: always()
+        run: ccache --show-stats
+
+      - name: Upload Linux artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: postgresql-portable-pg${{ matrix.major }}-unknown-linux_x86_64
+          path: |
+            dist/*.tar.gz
+            dist/*.sha256
+            dist/release-${{ matrix.major }}-unknown-linux_x86_64.env
+
+  build-macos:
+    needs: plan
+    strategy:
+      fail-fast: false
+      matrix:
+        major: ${{ fromJson(needs.plan.outputs.majors) }}
+        target:
+          - macos_x86_64
+          - macos_aarch64
+        include:
+          - target: macos_x86_64
+            runner: macos-13
+          - target: macos_aarch64
+            runner: macos-14
+    runs-on: ${{ matrix.runner }}
+    env:
+      CCACHE_DIR: /tmp/ccache
+      CC: ccache gcc
+      CXX: ccache g++
+    steps:
+      - name: Compute cache week key
+        id: week
+        run: echo "key=$(date +%Y-W%V)" >> "$GITHUB_OUTPUT"
+
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Restore Homebrew cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/Library/Caches/Homebrew/downloads
+            ~/Library/Caches/Homebrew/Cask
+          key: brew-${{ matrix.target }}-${{ hashFiles('.github/workflows/release-and-publish.yml') }}
+          restore-keys: |
+            brew-${{ matrix.target }}-
+
+      - name: Install macOS build dependencies
+        run: |
+          set -euo pipefail
+          brew install ccache icu4c gettext openldap readline zlib
+          echo "PKG_CONFIG_PATH=$(brew --prefix icu4c)/lib/pkgconfig:$(brew --prefix readline)/lib/pkgconfig:$(brew --prefix zlib)/lib/pkgconfig:$(brew --prefix openldap)/lib/pkgconfig${PKG_CONFIG_PATH:+:$PKG_CONFIG_PATH}" >> "$GITHUB_ENV"
+          echo "LDFLAGS=-L$(brew --prefix readline)/lib -L$(brew --prefix zlib)/lib -L$(brew --prefix openldap)/lib -L$(brew --prefix icu4c)/lib -L$(brew --prefix gettext)/lib${LDFLAGS:+ $LDFLAGS}" >> "$GITHUB_ENV"
+          echo "CPPFLAGS=-I$(brew --prefix readline)/include -I$(brew --prefix zlib)/include -I$(brew --prefix openldap)/include -I$(brew --prefix icu4c)/include -I$(brew --prefix gettext)/include${CPPFLAGS:+ $CPPFLAGS}" >> "$GITHUB_ENV"
+
+      - name: Restore ccache
+        uses: actions/cache@v4
+        with:
+          path: /tmp/ccache
+          key: ccache-${{ matrix.target }}-pg${{ matrix.major }}-${{ steps.week.outputs.key }}
+          restore-keys: |
+            ccache-${{ matrix.target }}-pg${{ matrix.major }}-
+
+      - name: Configure ccache
+        run: |
+          mkdir -p "$CCACHE_DIR"
+          ccache --max-size=500M
+          ccache --zero-stats
+
+      - name: Build portable PostgreSQL archive set
+        run: |
+          set -euo pipefail
+          chmod +x scripts/ci/*.sh scripts/*.sh
+          scripts/ci/build_portable_postgresql.sh \
+            --config ci/postgresql-release-config.json \
+            --major "${{ matrix.major }}" \
+            --target "${{ matrix.target }}" \
+            --output-dir dist
+
+      - name: Show ccache stats
+        if: always()
+        run: ccache --show-stats
+
+      - name: Upload macOS artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: postgresql-portable-pg${{ matrix.major }}-${{ matrix.target }}
+          path: |
+            dist/*.tar.gz
+            dist/*.sha256
+            dist/release-${{ matrix.major }}-${{ matrix.target }}.env
+
+  build-windows:
+    needs: plan
+    runs-on: windows-2022
+    strategy:
+      fail-fast: false
+      matrix:
+        major: ${{ fromJson(needs.plan.outputs.majors) }}
+    steps:
+      - name: Compute cache week key
+        id: week
+        shell: bash
+        run: echo "key=$(date +%Y-W%V)" >> "$GITHUB_OUTPUT"
+
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up MSYS2
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: MINGW64
+          update: false
+          install: >-
+            autoconf
+            automake
+            bison
+            diffutils
+            flex
+            git
+            make
+            mingw-w64-x86_64-ccache
+            mingw-w64-x86_64-gcc
+            mingw-w64-x86_64-gettext
+            mingw-w64-x86_64-icu
+            mingw-w64-x86_64-jq
+            mingw-w64-x86_64-openldap
+            mingw-w64-x86_64-readline
+            mingw-w64-x86_64-zlib
+            perl
+            tar
+            unzip
+            zip
+
+      - name: Restore ccache
+        uses: actions/cache@v4
+        with:
+          path: C:\msys64\tmp\ccache
+          key: ccache-windows-pg${{ matrix.major }}-${{ steps.week.outputs.key }}
+          restore-keys: |
+            ccache-windows-pg${{ matrix.major }}-
+
+      - name: Configure ccache
+        shell: msys2 {0}
+        run: |
+          export CCACHE_DIR=/tmp/ccache
+          mkdir -p "$CCACHE_DIR"
+          ccache --max-size=500M
+          ccache --zero-stats
+
+      - name: Build portable PostgreSQL archive set
+        shell: msys2 {0}
+        env:
+          CCACHE_DIR: /tmp/ccache
+          CC: ccache gcc
+          CXX: ccache g++
+        run: |
+          set -euo pipefail
+          chmod +x scripts/ci/*.sh scripts/*.sh
+          scripts/ci/build_portable_postgresql.sh \
+            --config ci/postgresql-release-config.json \
+            --major "${{ matrix.major }}" \
+            --target windows_x86_64 \
+            --output-dir dist
+
+      - name: Show ccache stats
+        if: always()
+        shell: msys2 {0}
+        run: |
+          export CCACHE_DIR=/tmp/ccache
+          ccache --show-stats
+
+      - name: Upload Windows artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: postgresql-portable-pg${{ matrix.major }}-windows_x86_64
+          path: |
+            dist/*.zip
+            dist/*.sha256
+            dist/release-${{ matrix.major }}-windows_x86_64.env
+
+  publish:
+    if: needs.plan.outputs.should_publish == 'true'
+    needs:
+      - plan
+      - build-linux
+      - build-macos
+      - build-windows
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        major: ${{ fromJson(needs.plan.outputs.majors) }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download major artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: postgresql-portable-pg${{ matrix.major }}-*
+          merge-multiple: true
+          path: dist
+
+      - name: Load release variables
+        id: vars
+        run: |
+          set -euo pipefail
+          source <(scripts/ci/get_release_vars.sh --config ci/postgresql-release-config.json --major "${{ matrix.major }}")
+          echo "pg_major=${PG_MAJOR}" >> "$GITHUB_OUTPUT"
+          echo "pg_version=${PG_VERSION}" >> "$GITHUB_OUTPUT"
+          echo "release_tag=${RELEASE_TAG}" >> "$GITHUB_OUTPUT"
+          echo "release_title=${RELEASE_TITLE}" >> "$GITHUB_OUTPUT"
+
+      - name: Create or update GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ steps.vars.outputs.release_tag }}
+          RELEASE_TITLE: ${{ steps.vars.outputs.release_title }}
+          PG_VERSION: ${{ steps.vars.outputs.pg_version }}
+        run: |
+          set -euo pipefail
+          release_tag="${RELEASE_TAG}"
+          pg_version="${PG_VERSION}"
+          notes_file="$(mktemp)"
+
+          {
+            printf 'Portable PostgreSQL %s\n\n' "$pg_version"
+            printf 'Base package includes PostgreSQL core plus contrib.\n'
+            printf 'This means pgcrypto, postgres_fdw, hstore, and the rest of contrib are already in the base archive.\n\n'
+            printf 'Assets:\n'
+            find dist -maxdepth 1 -type f \
+              \( -name '*.tar.gz' -o -name '*.zip' \) \
+              | sort \
+              | sed 's#^#- #'
+          } > "$notes_file"
+
+          mapfile -t assets < <(find dist -maxdepth 1 -type f \( -name '*.tar.gz' -o -name '*.zip' -o -name '*.sha256' \) | sort)
+
+          if gh release view "$release_tag" >/dev/null 2>&1; then
+            gh release upload "$release_tag" "${assets[@]}" --clobber
+            gh release edit "$release_tag" --title "$RELEASE_TITLE" --notes-file "$notes_file"
+          else
+            gh release create "$release_tag" "${assets[@]}" --title "$RELEASE_TITLE" --notes-file "$notes_file"
+          fi

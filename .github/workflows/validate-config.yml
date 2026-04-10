@@ -1,0 +1,78 @@
+name: Validate Release Config
+
+on:
+  pull_request:
+    paths:
+      - ci/postgresql-release-config.json
+      - scripts/ci/**
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Validate JSON syntax
+        run: |
+          set -euo pipefail
+          jq empty ci/postgresql-release-config.json
+          echo "JSON syntax: OK"
+
+      - name: Validate config structure
+        run: |
+          set -euo pipefail
+          config="ci/postgresql-release-config.json"
+
+          # Required top-level keys
+          for key in postgresql portable separate_extensions; do
+            if ! jq -e ".$key" "$config" >/dev/null 2>&1; then
+              echo "FAIL: missing required key .$key" >&2
+              exit 1
+            fi
+          done
+
+          # Required postgresql fields
+          for key in tracked_majors upstream_git_repo source_tarball_url_template releases; do
+            if ! jq -e ".postgresql.$key" "$config" >/dev/null 2>&1; then
+              echo "FAIL: missing .postgresql.$key" >&2
+              exit 1
+            fi
+          done
+
+          # Every tracked major must have a release entry with tag + version
+          mapfile -t majors < <(jq -r '.postgresql.tracked_majors[]' "$config")
+          for major in "${majors[@]}"; do
+            tag="$(jq -r --arg m "$major" '.postgresql.releases[$m].tag // empty' "$config")"
+            ver="$(jq -r --arg m "$major" '.postgresql.releases[$m].version // empty' "$config")"
+            if [[ -z "$tag" || -z "$ver" ]]; then
+              echo "FAIL: major $major is tracked but missing .postgresql.releases.$major.tag or .version" >&2
+              exit 1
+            fi
+          done
+
+          # Every target must have archive_format and runner
+          mapfile -t targets < <(jq -r '.portable.targets | keys[]' "$config")
+          for t in "${targets[@]}"; do
+            fmt="$(jq -r --arg t "$t" '.portable.targets[$t].archive_format // empty' "$config")"
+            runner="$(jq -r --arg t "$t" '.portable.targets[$t].runner // empty' "$config")"
+            if [[ -z "$fmt" || -z "$runner" ]]; then
+              echo "FAIL: target $t missing archive_format or runner" >&2
+              exit 1
+            fi
+          done
+
+          # Every separate extension must have a repo
+          mapfile -t exts < <(jq -r '.separate_extensions | keys[]' "$config")
+          for ext in "${exts[@]}"; do
+            repo="$(jq -r --arg e "$ext" '.separate_extensions[$e].repo // empty' "$config")"
+            if [[ -z "$repo" ]]; then
+              echo "FAIL: extension $ext missing .repo" >&2
+              exit 1
+            fi
+          done
+
+          echo "Config structure: OK"
+          echo "  Tracked majors: ${majors[*]}"
+          echo "  Targets: ${targets[*]}"
+          echo "  Extensions: ${exts[*]}"

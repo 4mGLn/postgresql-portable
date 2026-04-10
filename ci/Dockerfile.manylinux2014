@@ -1,0 +1,31 @@
+FROM quay.io/pypa/manylinux2014_x86_64
+
+RUN yum install -y epel-release && \
+    yum install -y \
+        bison \
+        ccache \
+        diffutils \
+        file \
+        findutils \
+        flex \
+        gcc \
+        gcc-c++ \
+        gettext-devel \
+        git \
+        gzip \
+        jq \
+        libicu-devel \
+        make \
+        openldap-devel \
+        patch \
+        patchelf \
+        perl \
+        readline-devel \
+        tar \
+        unzip \
+        which \
+        xz \
+        zlib-devel \
+        zip && \
+    yum clean all && \
+    rm -rf /var/cache/yum

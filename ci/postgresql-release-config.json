@@ -1,0 +1,79 @@
+{
+  "postgresql": {
+    "tracked_majors": [
+      "17",
+      "18"
+    ],
+    "upstream_git_repo": "https://github.com/postgres/postgres.git",
+    "source_tarball_url_template": "https://ftp.postgresql.org/pub/source/v{version}/postgresql-{version}.tar.gz",
+    "releases": {
+      "17": {
+        "tag": "REL_17_9",
+        "version": "17.9"
+      },
+      "18": {
+        "tag": "REL_18_3",
+        "version": "18.3"
+      }
+    }
+  },
+  "portable": {
+    "release_name_prefix": "postgresql-portable",
+    "linux_baseline": "manylinux2014",
+    "configure_flags": [],
+    "targets": {
+      "unknown-linux_x86_64": {
+        "archive_format": "tar.gz",
+        "runner": "ubuntu-24.04",
+        "container": "quay.io/pypa/manylinux2014_x86_64"
+      },
+      "windows_x86_64": {
+        "archive_format": "zip",
+        "runner": "windows-2022"
+      },
+      "macos_x86_64": {
+        "archive_format": "tar.gz",
+        "runner": "macos-13"
+      },
+      "macos_aarch64": {
+        "archive_format": "tar.gz",
+        "runner": "macos-14"
+      }
+    }
+  },
+  "separate_extensions": {
+    "pg_cron": {
+      "repo": "https://github.com/citusdata/pg_cron.git",
+      "ref": "v1.6.7",
+      "notes": [
+        "Requires shared_preload_libraries = 'pg_cron'.",
+        "Set cron.database_name in postgresql.conf before CREATE EXTENSION if you do not want to use the default postgres database."
+      ]
+    },
+    "pg_hint_plan": {
+      "repo": "https://github.com/ossc-db/pg_hint_plan.git",
+      "refs": {
+        "17": "REL17_1_7_1",
+        "18": "REL18_1_8_0"
+      },
+      "notes": [
+        "Requires shared_preload_libraries = 'pg_hint_plan'."
+      ]
+    },
+    "pg_partman": {
+      "repo": "https://github.com/pgpartman/pg_partman.git",
+      "ref": "v5.3.1",
+      "notes": [
+        "The background worker is included; load pg_partman_bgw from shared_preload_libraries if you want scheduled maintenance."
+      ]
+    },
+    "pgvector": {
+      "repo": "https://github.com/pgvector/pgvector.git",
+      "ref": "v0.8.1",
+      "sql_name": "vector",
+      "notes": [
+        "Enable with CREATE EXTENSION vector."
+      ]
+    }
+  }
+}
