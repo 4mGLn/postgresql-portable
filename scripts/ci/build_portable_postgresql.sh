@@ -171,7 +171,7 @@ download_source() {
 
 configure_postgresql() {
   local -a configure_flags=()
-  mapfile -t configure_flags < <(jq -r '.portable.configure_flags[]?' "$config")
+  mapfile -t configure_flags < <(jq -r '.portable.configure_flags[]?' "$config" | tr -d '\r')
 
   pushd "$build_dir" >/dev/null
   "${source_dir}/configure" --prefix="$install_root" ${configure_flags[@]+"${configure_flags[@]}"}
@@ -244,7 +244,7 @@ EOF
 build_external_overlays() {
   local extension
 
-  mapfile -t extensions < <(jq -r '.separate_extensions | keys[]' "$config")
+  mapfile -t extensions < <(jq -r '.separate_extensions | keys[]' "$config" | tr -d '\r')
   for extension in "${extensions[@]}"; do
     "${SCRIPT_DIR}/build_extension_overlay.sh" \
       --config "$config" \
