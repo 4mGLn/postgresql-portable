@@ -37,6 +37,7 @@ jobs:
     outputs:
       majors: ${{ steps.resolve.outputs.majors }}
       should_publish: ${{ steps.resolve.outputs.should_publish }}
+      container_image: ${{ steps.resolve.outputs.container_image }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -47,6 +48,7 @@ jobs:
           MAJORS_INPUT: ${{ github.event.inputs.majors }}
           PUBLISH_INPUT: ${{ github.event.inputs.publish }}
           EVENT_NAME: ${{ github.event_name }}
+          REPO: ${{ github.repository }}
         run: |
           set -euo pipefail
           majors_input="${MAJORS_INPUT}"
@@ -71,12 +73,13 @@ jobs:
 
           echo "majors=${majors_json}" >> "$GITHUB_OUTPUT"
           echo "should_publish=${should_publish}" >> "$GITHUB_OUTPUT"
+          echo "container_image=ghcr.io/${REPO,,}/build-manylinux2014:latest" >> "$GITHUB_OUTPUT"
 
   build-linux:
     needs: plan
     runs-on: ubuntu-24.04
     container:
-      image: ghcr.io/${{ github.repository }}/build-manylinux2014:latest
+      image: ${{ needs.plan.outputs.container_image }}
       credentials:
         username: ${{ github.actor }}
         password: ${{ secrets.GITHUB_TOKEN }}
