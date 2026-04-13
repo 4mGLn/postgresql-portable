@@ -246,6 +246,13 @@ build_external_overlays() {
 
   mapfile -t extensions < <(jq -r '.separate_extensions | keys[]' "$config" | tr -d '\r')
   for extension in "${extensions[@]}"; do
+    local skip
+    skip="$(jq -r --arg ext "$extension" --arg tgt "$TARGET" \
+      '.separate_extensions[$ext].skip_targets // [] | index($tgt) // empty' "$config")"
+    if [[ -n "$skip" ]]; then
+      echo "Skipping $extension on $TARGET (listed in skip_targets)"
+      continue
+    fi
     "${SCRIPT_DIR}/build_extension_overlay.sh" \
       --config "$config" \
       --major "$PG_MAJOR" \
