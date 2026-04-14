@@ -124,6 +124,24 @@ ext_archive="${output_dir}/${RELEASE_NAME_PREFIX}-${extension}-${PG_VERSION}-${b
 rm -rf "$ext_root"
 mkdir -p "${ext_root}/src" "$ext_stage" "$ext_package_root"
 
+# On MSYS2, pg_config returns Windows-style paths (D:/a/...) but DESTDIR is
+# Unix-style (/d/a/.../stage). PGXS concatenates $(DESTDIR)$(prefix) directly,
+# producing broken paths like "stageD:/a/..." where MSYS2 interprets D: as a
+# drive letter and installs files outside the staging area entirely.
+# Fix: wrap pg_config to convert its output to Unix-style paths.
+pg_config_cmd="${install_prefix}/bin/pg_config"
+if command -v cygpath >/dev/null 2>&1; then
+  pg_config_cmd="${ext_root}/pg_config_unix"
+  cat > "$pg_config_cmd" <<EOF
+#!/bin/bash
+out="\$(${install_prefix}/bin/pg_config "\$@")"
+[[ "\$out" =~ ^[A-Za-z]:/ ]] && out="\$(cygpath -u "\$out")"
+printf '%s\\n' "\$out"
+EOF
+  chmod +x "$pg_config_cmd"
+  ext_stage_prefix="${ext_stage}/$("$pg_config_cmd" --prefix | sed 's|^/||')"
+fi
+
 if [[ -n "$extension_ref" ]]; then
   git clone --depth 1 --branch "$extension_ref" "$extension_repo" "$ext_src"
 else
@@ -138,23 +156,14 @@ if [[ "$target" == *windows* ]] && [[ ! -f win32ver.rc ]]; then
 fi
 
 make clean >/dev/null 2>&1 || true
-PATH="${install_prefix}/bin:${PATH}" make -j"$jobs" USE_PGXS=1 PG_CONFIG="${install_prefix}/bin/pg_config"
-PATH="${install_prefix}/bin:${PATH}" make USE_PGXS=1 PG_CONFIG="${install_prefix}/bin/pg_config" DESTDIR="$ext_stage" install
+PATH="${install_prefix}/bin:${PATH}" make -j"$jobs" USE_PGXS=1 PG_CONFIG="$pg_config_cmd"
+PATH="${install_prefix}/bin:${PATH}" make USE_PGXS=1 PG_CONFIG="$pg_config_cmd" DESTDIR="$ext_stage" install
 popd >/dev/null
 
-# Discover where PGXS actually staged files by finding the .control file.
-# On MSYS2, realpath_existing and pg_config can return different path forms,
-# so we locate files dynamically instead of computing ext_stage_prefix.
-staged_control="$(find "$ext_stage" -name "*.control" -path "*/share/extension/*" -print -quit 2>/dev/null)"
-if [[ -n "$staged_control" ]]; then
-  # .control lives at <prefix>/share/extension/foo.control — go up 3 levels
-  ext_stage_prefix="$(cd "$(dirname "$staged_control")/../../.." && pwd)"
-elif [[ -d "$ext_stage_prefix" ]]; then
-  : # original computed path works, use it
-else
-  echo "ERROR: Extension $extension did not install files under ${ext_stage}" >&2
+if [[ ! -d "$ext_stage_prefix" ]]; then
+  echo "ERROR: Extension $extension did not stage files beneath ${ext_stage_prefix}" >&2
   echo "  install_prefix: $install_prefix" >&2
-  echo "  expected stage prefix: $ext_stage_prefix" >&2
+  echo "  pg_config --prefix: $("$pg_config_cmd" --prefix)" >&2
   echo "  Contents of stage dir:" >&2
   find "$ext_stage" -type f 2>/dev/null | head -20 >&2 || true
   exit 1
