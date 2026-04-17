@@ -110,6 +110,11 @@ First run: ~25 min. Subsequent cached runs: ~8-12 min.
 ## Known Limitations
 
 - Linux binaries require a glibc >= 2.17 host (CentOS 7 era). Musl-based distributions (Alpine) are not supported.
+- **PL/Python** (`plpython3`): the portable archive bundles `libpython3.x.so` / `libpython3.x.dll`, but Python's standard library (`Lib/`, `python3x.zip`) is not included. PL/Python will load but fail to import any Python module unless a matching Python installation is present on the target machine and `PYTHONHOME` is set correctly.
+- **PL/Perl** (`plperl`): similarly, `libperl.so` / `libperl.dll` is bundled but Perl's module tree (`lib/`) is not. Perl code that uses core or CPAN modules requires a Perl installation on the target.
+- **PL/Tcl** (`pltcl`): `libtcl8.x.so` / `tcl86.dll` is bundled but the Tcl script library (`init.tcl`, `tcl8.x/`) is not. Set `TCL_LIBRARY` to a Tcl installation on the target if Tcl procedures are used.
+- **PAM authentication** (Linux only): `libpam.so` is bundled, but PAM authentication modules (`/lib/security/*.so`) are loaded from the target host at runtime and are not portable.
+- Windows builds require the Visual C++ Redistributable or the Universal CRT (`ucrtbase.dll`) to be present on the target, which is standard on Windows 10+ and available via Windows Update for earlier versions.
 
 ## License
 
