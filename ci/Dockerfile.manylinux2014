@@ -23,7 +23,8 @@ RUN yum install -y epel-release && \
         lz4-devel \
         make \
         openldap-devel \
-        openssl-devel \
+        openssl11-devel \
+        openssl11-libs \
         pam-devel \
         patch \
         patchelf \
@@ -42,3 +43,8 @@ RUN yum install -y epel-release && \
         zip && \
     yum clean all && \
     rm -rf /var/cache/yum
+
+# openssl11 installs headers under /usr/include/openssl11 and a private lib
+# dir under /usr/lib64/openssl11 — point pkg-config there so PostgreSQL
+# configure picks up 1.1.1 instead of the system 1.0.2k.
+ENV PKG_CONFIG_PATH=/usr/lib64/openssl11/pkgconfig
