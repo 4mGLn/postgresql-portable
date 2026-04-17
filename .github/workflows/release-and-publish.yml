@@ -225,6 +225,12 @@ jobs:
           CCACHE_DIR: /tmp/ccache
           CC: ccache gcc
           CXX: ccache g++
+          # Pre-set OPENSSL_* so PKG_CHECK_MODULES skips pkg-config entirely.
+          # pkg-config path discovery is unreliable in GitHub Actions MSYS2 shells;
+          # pre-setting these variables bypasses it and points directly at the
+          # MinGW64 OpenSSL installed by mingw-w64-x86_64-openssl.
+          OPENSSL_CFLAGS: -I/mingw64/include
+          OPENSSL_LIBS: -L/mingw64/lib -lssl -lcrypto
         run: |
           set -euo pipefail
           chmod +x scripts/ci/*.sh scripts/*.sh

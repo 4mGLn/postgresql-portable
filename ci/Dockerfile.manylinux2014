@@ -32,6 +32,7 @@ RUN yum install -y epel-release && \
         perl \
         perl-devel \
         perl-ExtUtils-Embed \
+        pkgconfig \
         python3-devel \
         readline-devel \
         tar \
@@ -45,7 +46,14 @@ RUN yum install -y epel-release && \
     yum clean all && \
     rm -rf /var/cache/yum
 
-# openssl11 installs headers under /usr/include/openssl11 and a private lib
-# dir under /usr/lib64/openssl11 — point pkg-config there so PostgreSQL
-# configure picks up 1.1.1 instead of the system 1.0.2k.
-ENV PKG_CONFIG_PATH=/usr/lib64/openssl11/pkgconfig
+# openssl11-devel (EPEL) installs under /usr/include/openssl11 and
+# /usr/lib64/openssl11/ — non-standard paths that autoconf won't search by
+# default.  Set CPPFLAGS and LDFLAGS so every AC_CHECK_LIB / AC_COMPILE_IFELSE
+# in PostgreSQL's configure (including the SSL_CTX_set_ciphersuites version
+# probe in PG18) resolves against OpenSSL 1.1.1 instead of the system 1.0.2k.
+# Also pre-set OPENSSL_* for PKG_CHECK_MODULES (used by PG16/17) as a
+# belt-and-suspenders fallback.
+ENV CPPFLAGS="-I/usr/include/openssl11" \
+    LDFLAGS="-L/usr/lib64/openssl11" \
+    OPENSSL_CFLAGS="-I/usr/include/openssl11" \
+    OPENSSL_LIBS="-L/usr/lib64/openssl11 -lssl -lcrypto"
