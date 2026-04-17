@@ -225,14 +225,35 @@ jobs:
           CCACHE_DIR: /tmp/ccache
           CC: ccache gcc
           CXX: ccache g++
-          # Pre-set OPENSSL_* so PKG_CHECK_MODULES skips pkg-config entirely.
-          # pkg-config path discovery is unreliable in GitHub Actions MSYS2 shells;
-          # pre-setting these variables bypasses it and points directly at the
-          # MinGW64 OpenSSL installed by mingw-w64-x86_64-openssl.
-          OPENSSL_CFLAGS: -I/mingw64/include
-          OPENSSL_LIBS: -L/mingw64/lib -lssl -lcrypto
         run: |
           set -euo pipefail
+          # GHA Windows runners uppercase env var names; lowercase autoconf cache
+          # variables must be exported here in bash so they survive into configure.
+          # All AC_CHECK_LIB / AC_SEARCH_LIBS conftests fail to link because
+          # MinGW64 GCC does not resolve /mingw64/lib in its default search path
+          # when LDFLAGS is empty at configure time. Pre-set every mandatory
+          # library cache variable so configure skips the broken link tests and
+          # runs its ACTION-IF-FOUND (which adds the -l flag to LIBS).
+          #
+          # --with-openssl  (AC_SEARCH_LIBS)
+          export ac_cv_search_CRYPTO_new_ex_data="-lcrypto"
+          export ac_cv_search_SSL_new="-lssl"
+          # --with-libxml   (AC_CHECK_LIB)
+          export ac_cv_lib_xml2_xmlSaveToBuffer="yes"
+          # --with-libxslt  (AC_CHECK_LIB)
+          export ac_cv_lib_xslt_xsltCleanupGlobals="yes"
+          # --with-lz4      (AC_CHECK_LIB)
+          export ac_cv_lib_lz4_LZ4_compress_default="yes"
+          # --with-zstd     (AC_CHECK_LIB)
+          export ac_cv_lib_zstd_ZSTD_compress="yes"
+          # --with-zlib     (AC_CHECK_LIB)
+          export ac_cv_lib_z_inflate="yes"
+          # --with-readline (AC_SEARCH_LIBS)
+          export ac_cv_search_readline="-lreadline"
+          # --with-ldap     (win32: AC_CHECK_LIB(wldap32, ldap_bind))
+          export ac_cv_lib_wldap32_ldap_bind="yes"
+          # --enable-nls    (AC_SEARCH_LIBS — ngettext from libintl/gettext)
+          export ac_cv_search_ngettext="-lintl"
           chmod +x scripts/ci/*.sh scripts/*.sh
           scripts/ci/build_portable_postgresql.sh \
             --config ci/postgresql-release-config.json \
