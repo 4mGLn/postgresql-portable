@@ -4,10 +4,15 @@ trap 'echo "Build failed at line $LINENO" >&2' ERR
 
 usage() {
   cat <<'EOF'
-Usage: build_portable_postgresql.sh --major <major> --target <target> [--config <path>] [--output-dir <path>] [--work-dir <path>] [--jobs <n>]
+Usage: build_portable_postgresql.sh --major <major> --target <target> [--config <path>] [--output-dir <path>] [--work-dir <path>] [--jobs <n>] [--skip-checksum-verify]
 
 Builds an upstream PostgreSQL release into a relocatable archive for the requested
 target family.
+
+Options:
+  --skip-checksum-verify   Skip SHA256 verification of the downloaded source tarball.
+                           Use only for air-gapped builds where the upstream checksum
+                           server is unreachable and the tarball is already trusted.
 EOF
 }
 
@@ -32,6 +37,7 @@ target=""
 output_dir="${REPO_ROOT}/dist"
 work_dir="${REPO_ROOT}/.work"
 jobs="$(detect_jobs)"
+skip_checksum_verify=0
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -59,6 +65,10 @@ while [[ $# -gt 0 ]]; do
       jobs="${2:-}"
       shift 2
       ;;
+    --skip-checksum-verify)
+      skip_checksum_verify=1
+      shift
+      ;;
     -h|--help)
       usage
       exit 0
@@ -80,6 +90,49 @@ if [[ ! -f "$config" ]]; then
   echo "Config file not found: $config" >&2
   exit 1
 fi
+
+# Verify the requested target is compatible with the host environment.
+# PostgreSQL's ./configure does not support cross-compilation: it compiles and
+# runs test programs during feature detection, so the target must match the host.
+check_host_target_compat() {
+  local host_os
+  host_os="$(uname -s)"
+
+  case "$target" in
+    windows_*)
+      case "$host_os" in
+        MINGW*|MSYS*|CYGWIN*) ;;
+        *)
+          echo "ERROR: target '$target' requires a Windows/MSYS2 host, but this host is '${host_os}'." >&2
+          echo "  PostgreSQL's ./configure cannot cross-compile from Linux to Windows." >&2
+          echo "  To build for Windows, use GitHub Actions CI:" >&2
+          echo "    gh workflow run release-and-publish.yml --field majors=${major} --field publish=false" >&2
+          exit 1
+          ;;
+      esac
+      ;;
+    macos_*)
+      case "$host_os" in
+        Darwin) ;;
+        *)
+          echo "ERROR: target '$target' requires a macOS host, but this host is '${host_os}'." >&2
+          exit 1
+          ;;
+      esac
+      ;;
+    unknown-linux_*)
+      case "$host_os" in
+        Linux) ;;
+        *)
+          echo "ERROR: target '$target' requires a Linux host, but this host is '${host_os}'." >&2
+          exit 1
+          ;;
+      esac
+      ;;
+  esac
+}
+
+check_host_target_compat
 
 if [[ "$work_dir" != /* ]]; then
   work_dir="${REPO_ROOT}/${work_dir}"
@@ -103,9 +156,12 @@ install_root="${build_root}/install/${ARCHIVE_STEM}"
 archive_path="${output_dir}/${ARCHIVE_BASENAME}"
 env_file="${output_dir}/release-${PG_MAJOR}-${bundle_target}.env"
 
-mkdir -p "$build_root" "$source_root" "$build_dir"
-rm -rf "$install_root"
-mkdir -p "$install_root"
+mkdir -p "$build_root" "$source_root"
+# Always start from a clean build directory so stale object files compiled
+# under a different configure flag set (e.g. without --with-openssl) cannot
+# be silently reused, causing duplicate-symbol linker errors.
+rm -rf "$build_dir" "$install_root"
+mkdir -p "$build_dir" "$install_root"
 
 require_tools() {
   local missing=0
@@ -128,9 +184,10 @@ verify_checksum() {
 
   echo "Verifying SHA256 checksum from ${checksum_url}"
   if ! curl -fsSL "$checksum_url" -o "$checksum_file"; then
-    echo "WARNING: Could not download upstream checksum file from ${checksum_url}" >&2
+    echo "FATAL: Could not download upstream checksum file from ${checksum_url}" >&2
+    echo "  If this is an air-gapped build, re-run with --skip-checksum-verify." >&2
     rm -f "$checksum_file"
-    return 0
+    return 1
   fi
 
   local expected
@@ -138,8 +195,8 @@ verify_checksum() {
   rm -f "$checksum_file"
 
   if [[ -z "$expected" ]]; then
-    echo "WARNING: No matching checksum entry found for $(basename "$file")" >&2
-    return 0
+    echo "FATAL: No matching checksum entry found for $(basename "$file") in upstream checksum file." >&2
+    return 1
   fi
 
   local actual
@@ -162,8 +219,12 @@ download_source() {
   echo "Downloading PostgreSQL ${PG_VERSION} source from ${SOURCE_TARBALL_URL}"
   curl -fsSL "${SOURCE_TARBALL_URL}" -o "$source_archive"
 
-  local checksum_url="${SOURCE_TARBALL_URL%.tar.gz}.tar.gz.sha256"
-  verify_checksum "$source_archive" "$checksum_url"
+  if (( skip_checksum_verify )); then
+    echo "WARNING: Skipping SHA256 checksum verification (--skip-checksum-verify)." >&2
+  else
+    local checksum_url="${SOURCE_TARBALL_URL%.tar.gz}.tar.gz.sha256"
+    verify_checksum "$source_archive" "$checksum_url"
+  fi
 
   rm -rf "$source_dir"
   tar -xzf "$source_archive" -C "$source_root"
@@ -172,6 +233,25 @@ download_source() {
 configure_postgresql() {
   local -a configure_flags=()
   mapfile -t configure_flags < <(jq -r '.portable.configure_flags[]?' "$config" | tr -d '\r')
+
+  # Apply per-target exclusions (e.g. --with-pam is Linux-only).
+  local -a excluded=()
+  mapfile -t excluded < <(jq -r --arg t "$TARGET" \
+    '.portable.configure_flags_exclude[$t][]? // empty' "$config" | tr -d '\r')
+
+  if [[ ${#excluded[@]} -gt 0 ]]; then
+    local -a filtered=()
+    local flag excl skip
+    for flag in "${configure_flags[@]}"; do
+      skip=0
+      for excl in "${excluded[@]}"; do
+        [[ "$flag" == "$excl" ]] && skip=1 && break
+      done
+      (( skip )) || filtered+=("$flag")
+    done
+    configure_flags=("${filtered[@]}")
+    echo "Note: excluded configure flags for target ${TARGET}: ${excluded[*]}"
+  fi
 
   pushd "$build_dir" >/dev/null
   "${source_dir}/configure" --prefix="$install_root" ${configure_flags[@]+"${configure_flags[@]}"}
@@ -223,12 +303,6 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 export PATH="${ROOT}/bin:${PATH}"
-
-if [[ "$(uname -s)" == "Darwin" ]]; then
-  export DYLD_LIBRARY_PATH="${ROOT}/lib${DYLD_LIBRARY_PATH:+:${DYLD_LIBRARY_PATH}}"
-else
-  export LD_LIBRARY_PATH="${ROOT}/lib${LD_LIBRARY_PATH:+:${LD_LIBRARY_PATH}}"
-fi
 
 echo "Portable PostgreSQL environment loaded from ${ROOT}"
 EOF

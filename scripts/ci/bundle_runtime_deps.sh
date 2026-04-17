@@ -237,7 +237,28 @@ windows_skip_dependency() {
   local upper
   upper="$(printf '%s' "$(basename "$1")" | tr '[:lower:]' '[:upper:]')"
   case "$upper" in
-    ADVAPI32.DLL|BCRYPT.DLL|COMCTL32.DLL|COMDLG32.DLL|CRYPT32.DLL|GDI32.DLL|IMM32.DLL|KERNEL32.DLL|NTDLL.DLL|OLE32.DLL|RPCRT4.DLL|SECHOST.DLL|SHELL32.DLL|SHLWAPI.DLL|USER32.DLL|VERSION.DLL|WS2_32.DLL)
+    # Windows kernel / core Win32
+    ADVAPI32.DLL|BCRYPT.DLL|COMCTL32.DLL|COMDLG32.DLL|CRYPT32.DLL|\
+    GDI32.DLL|IMM32.DLL|KERNEL32.DLL|NTDLL.DLL|OLE32.DLL|OLEAUT32.DLL|\
+    RPCRT4.DLL|SECHOST.DLL|SHELL32.DLL|SHLWAPI.DLL|USER32.DLL|\
+    VERSION.DLL|WS2_32.DLL)
+      return 0
+      ;;
+    # C / C++ runtime — ships with Windows or the Visual C++ Redistributable
+    MSVCRT.DLL|UCRTBASE.DLL|MSVCP*.DLL|VCRUNTIME*.DLL)
+      return 0
+      ;;
+    # Universal CRT forwarder DLLs (api-ms-win-crt-*, api-ms-win-core-*, ext-ms-win-*)
+    API-MS-WIN-*|EXT-MS-WIN-*)
+      return 0
+      ;;
+    # Networking and system services — built into every Windows installation
+    DNSAPI.DLL|IPHLPAPI.DLL|NETAPI32.DLL|PSAPI.DLL|SECUR32.DLL|\
+    USERENV.DLL|WINMM.DLL|MPR.DLL|DBGHELP.DLL)
+      return 0
+      ;;
+    # Windows built-in LDAP and Kerberos/SSPI (used by --with-ldap / --with-gssapi)
+    WLDAP32.DLL|SSPICLI.DLL|KERBEROS.DLL)
       return 0
       ;;
     *)
@@ -248,12 +269,15 @@ windows_skip_dependency() {
 
 resolve_windows_dependency() {
   local dll="$1"
-  local dir
+  local dir found
   IFS=':' read -r -a path_parts <<< "${PATH:-}"
   for dir in "${path_parts[@]}"; do
-    [[ -z "$dir" ]] && continue
-    if [[ -e "${dir}/${dll}" ]]; then
-      printf '%s\n' "${dir}/${dll}"
+    [[ -z "$dir" || ! -d "$dir" ]] && continue
+    # Use find -iname for case-insensitive matching: objdump may report DLL
+    # names in a different case than the actual filename on disk.
+    found="$(find "$dir" -maxdepth 1 -iname "$dll" -print -quit 2>/dev/null || true)"
+    if [[ -n "$found" ]]; then
+      printf '%s\n' "$found"
       return 0
     fi
   done
@@ -261,31 +285,64 @@ resolve_windows_dependency() {
 }
 
 bundle_windows() {
-  local file dep resolved dest
+  local dep resolved dest
   declare -A seen=()
+  local -a queue=()
 
+  # Seed the queue with all executables and DLLs already in the install tree.
   while IFS= read -r -d '' file; do
     case "$file" in
-      *.dll|*.exe) ;;
-      *) continue ;;
+      *.dll|*.exe) queue+=("$file") ;;
     esac
+  done < <(collect_files)
+
+  # BFS: re-scan each newly copied DLL so transitive deps are also bundled
+  # (e.g. libgcc_s_seh-1.dll → libwinpthread-1.dll).
+  local qi=0
+  while [[ $qi -lt ${#queue[@]} ]]; do
+    local file="${queue[$qi]}"
+    (( qi++ ))
 
     while IFS= read -r dep; do
       [[ -z "$dep" ]] && continue
       windows_skip_dependency "$dep" && continue
-      if [[ -n "${seen[$dep]:-}" ]]; then
-        continue
-      fi
+      # Normalise to lowercase so DLL names from different import tables
+      # that differ only in case don't get bundled twice.
+      local dep_lower
+      dep_lower="$(printf '%s' "$dep" | tr '[:upper:]' '[:lower:]')"
+      [[ -n "${seen[$dep_lower]:-}" ]] && continue
+      seen["$dep_lower"]=1
+
       resolved="$(resolve_windows_dependency "$dep" || true)"
-      if [[ -z "$resolved" || "$resolved" == "$bin_dir/"* ]]; then
-        continue
-      fi
-      dest="${bin_dir}/$(basename "$dep")"
+      [[ -z "$resolved" ]] && continue
+
+      dest="${bin_dir}/$(basename "$resolved")"
+      # Skip if already present in the bundle (either original or previously copied).
+      [[ -e "$dest" ]] && continue
+
       copy_dependency_file "$resolved" "$bin_dir"
-      seen["$dep"]=1
       chmod u+w "$dest" || true
+      # Enqueue so its own deps are scanned in a later iteration.
+      queue+=("$dest")
     done < <(objdump -p "$file" 2>/dev/null | awk '/DLL Name:/ { print $3 }' | sort -u)
-  done < <(collect_files)
+  done
+
+  # ICU loads its data DLL (libicudt*.dll) at runtime via internal discovery
+  # rather than a PE import entry, so objdump never reports it as a dependency.
+  # Find any libicuuc*.dll we bundled and copy the matching libicudt*.dll too.
+  local icuuc icudt_name icudt_resolved
+  while IFS= read -r icuuc; do
+    icudt_name="$(basename "$icuuc" | sed 's/libicuuc/libicudt/i')"
+    if [[ ! -e "${bin_dir}/${icudt_name}" ]]; then
+      icudt_resolved="$(resolve_windows_dependency "$icudt_name" || true)"
+      if [[ -n "$icudt_resolved" ]]; then
+        copy_dependency_file "$icudt_resolved" "$bin_dir"
+        warn "Explicitly bundled ICU data DLL: ${icudt_name} (not in PE import table)"
+      else
+        warn "Could not find ICU data DLL ${icudt_name} — ICU locale/collation may fail at runtime"
+      fi
+    fi
+  done < <(find "$bin_dir" -maxdepth 1 -iname 'libicuuc*.dll' 2>/dev/null)
 }
 
 case "$target" in

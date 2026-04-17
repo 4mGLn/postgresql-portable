@@ -8,14 +8,27 @@ fi
 
 usage() {
   cat <<'EOF'
-Usage: run_local_build.sh --major <major> [--no-container] [additional build_portable_postgresql.sh args]
+Usage: run_local_build.sh --major <major> [--target <target>] [--jobs <n>] [--no-container] [additional build_portable_postgresql.sh args]
 
 Builds the portable PostgreSQL archive for the current host platform.
 
-On Linux, the build runs inside a manylinux2014 container (CentOS 7, glibc 2.17)
-by default so the resulting binaries are portable to CentOS 7+ and all modern
-distributions. Use --no-container to build directly on the host (the result will
-only run on hosts with the same or newer glibc).
+Options:
+  --target <target>  Override the auto-detected target (e.g. unknown-linux_x86_64,
+                     windows_x86_64). The target must be supported by the host
+                     environment — cross-compilation is not supported.
+  --jobs <n>         Parallel make jobs (default: nproc / hw.ncpu)
+  --no-ccache        Disable ccache even if it is available
+  --no-container     Build directly on the host without a container (result is not
+                     portable across glibc versions)
+
+Supported targets and their required environments:
+  unknown-linux_x86_64   Linux host or manylinux2014 container (default on Linux)
+  windows_x86_64         MSYS2/MinGW-w64 on Windows (cannot cross-compile from Linux)
+  macos_x86_64           macOS x86_64 host
+  macos_aarch64          macOS Apple Silicon host
+
+Windows builds from Linux: use GitHub Actions CI instead —
+  gh workflow run release-and-publish.yml --field majors=<major> --field publish=false
 
 Requires Docker or Podman for containerized Linux builds.
 EOF
@@ -66,41 +79,87 @@ if [[ $# -eq 0 ]]; then
   exit 1
 fi
 
+detect_jobs() {
+  if command -v nproc >/dev/null 2>&1; then
+    nproc
+  elif command -v sysctl >/dev/null 2>&1; then
+    sysctl -n hw.ncpu
+  else
+    printf '4\n'
+  fi
+}
+
 use_container="auto"
+use_ccache="auto"
+jobs="$(detect_jobs)"
+target_override=""
 passthrough_args=()
 
-for arg in "$@"; do
-  case "$arg" in
+while [[ $# -gt 0 ]]; do
+  case "$1" in
     -h|--help)
       usage
       exit 0
       ;;
     --no-container)
       use_container="no"
+      shift
+      ;;
+    --no-ccache)
+      use_ccache="no"
+      shift
+      ;;
+    --target)
+      target_override="${2:-}"
+      if [[ -z "$target_override" ]]; then
+        echo "--target requires a value" >&2
+        exit 1
+      fi
+      shift 2
+      ;;
+    --jobs)
+      jobs="${2:-}"
+      if [[ -z "$jobs" ]]; then
+        echo "--jobs requires a value" >&2
+        exit 1
+      fi
+      shift 2
       ;;
     *)
-      passthrough_args+=("$arg")
+      passthrough_args+=("$1")
+      shift
       ;;
   esac
 done
 
-target="$(detect_target || true)"
-if [[ -z "$target" ]]; then
-  echo "Unsupported local host for portable build" >&2
-  exit 1
+if [[ -n "$target_override" ]]; then
+  target="$target_override"
+else
+  target="$(detect_target || true)"
+  if [[ -z "$target" ]]; then
+    echo "Unsupported local host for portable build" >&2
+    exit 1
+  fi
+fi
+
+# ccache setup: persist the cache on the host under .cache/ccache-<target>
+# so it survives across builds and container rebuilds.
+ccache_dir="${REPO_ROOT}/.cache/ccache-${target}"
+ccache_env_args=()
+if [[ "$use_ccache" != "no" ]] && command -v ccache >/dev/null 2>&1; then
+  mkdir -p "$ccache_dir"
+  ccache_env_args=(
+    -e "CCACHE_DIR=/ccache"
+    -e "CC=ccache gcc"
+    -e "CXX=ccache g++"
+  )
+  echo "ccache enabled (host cache: ${ccache_dir})"
+else
+  echo "ccache disabled"
 fi
 
 # On Linux, run inside the manylinux2014 container for glibc portability
 if [[ "$target" == unknown-linux_* && "$use_container" != "no" ]]; then
-  config="${REPO_ROOT}/ci/postgresql-release-config.json"
-  container_image="$(jq -r --arg t "$target" '.portable.targets[$t].container // empty' "$config")"
-
-  if [[ -z "$container_image" ]]; then
-    echo "No container image configured for target $target in $config" >&2
-    echo "Use --no-container to build directly on the host (not portable)" >&2
-    exit 1
-  fi
-
   runtime="$(detect_container_runtime || true)"
   if [[ -z "$runtime" ]]; then
     echo "Docker or Podman is required for portable Linux builds (glibc 2.17 baseline)" >&2
@@ -108,18 +167,41 @@ if [[ "$target" == unknown-linux_* && "$use_container" != "no" ]]; then
     exit 1
   fi
 
-  echo "Building inside ${container_image} via ${runtime} for glibc portability..."
+  local_image="postgresql-portable-build:local"
+  dockerfile="${REPO_ROOT}/ci/Dockerfile.manylinux2014"
+
+  echo "Building local container image from ${dockerfile}..."
+  "$runtime" build -t "$local_image" -f "$dockerfile" "${REPO_ROOT}/ci"
+
+  # Mount the host ccache directory into the container so the cache persists.
+  ccache_mount_args=()
+  if [[ ${#ccache_env_args[@]} -gt 0 ]]; then
+    ccache_mount_args=(-v "${ccache_dir}:/ccache")
+  fi
+
+  echo "Building inside ${local_image} via ${runtime} for glibc portability..."
   exec "$runtime" run --rm \
     -v "${REPO_ROOT}:${REPO_ROOT}" \
     -w "${REPO_ROOT}" \
-    "$container_image" \
+    "${ccache_mount_args[@]+"${ccache_mount_args[@]}"}" \
+    "${ccache_env_args[@]+"${ccache_env_args[@]}"}" \
+    "$local_image" \
     bash -c "
       set -euo pipefail
-      yum install -y -q epel-release >/dev/null 2>&1
-      yum install -y -q bison ccache diffutils file findutils flex gcc gcc-c++ gettext-devel git gzip jq libicu-devel make openldap-devel patch patchelf perl readline-devel tar unzip which xz zlib-devel zip >/dev/null 2>&1
+      $(if [[ ${#ccache_env_args[@]} -gt 0 ]]; then echo 'ccache --max-size=500M; ccache --zero-stats'; fi)
       chmod +x scripts/ci/*.sh scripts/*.sh
-      scripts/ci/build_portable_postgresql.sh --target '$target' $(for a in "${passthrough_args[@]}"; do printf '%q ' "$a"; done)
+      scripts/ci/build_portable_postgresql.sh --target '$target' --jobs '$jobs' $(for a in "${passthrough_args[@]}"; do printf '%q ' "$a"; done)
+      $(if [[ ${#ccache_env_args[@]} -gt 0 ]]; then echo 'echo "--- ccache stats ---"; ccache --show-stats'; fi)
     "
 fi
 
-exec "${SCRIPT_DIR}/ci/build_portable_postgresql.sh" --target "$target" "${passthrough_args[@]}"
+# Bare-exec path (non-containerized or non-Linux)
+if [[ "$use_ccache" != "no" ]] && command -v ccache >/dev/null 2>&1; then
+  export CCACHE_DIR="$ccache_dir"
+  export CC="ccache gcc"
+  export CXX="ccache g++"
+  ccache --max-size=500M
+  ccache --zero-stats
+fi
+
+exec "${SCRIPT_DIR}/ci/build_portable_postgresql.sh" --target "$target" --jobs "$jobs" "${passthrough_args[@]}"
