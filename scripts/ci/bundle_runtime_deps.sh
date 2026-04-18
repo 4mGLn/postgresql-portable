@@ -46,7 +46,15 @@ if [[ ! -d "$prefix" ]]; then
 fi
 
 realpath_existing() {
-  perl -MCwd=realpath -e 'print realpath(shift)' "$1"
+  # Prefer the coreutils 'realpath' command (available on Linux and MSYS2).
+  # Fall back to python3 for macOS where GNU realpath requires Homebrew.
+  # Avoid 'perl -MCwd=realpath' on Windows: MSYS2 Perl locale init emits
+  # warnings that can cause a non-zero exit under set -e.
+  if command -v realpath >/dev/null 2>&1; then
+    realpath "$1"
+  else
+    python3 -c 'import os,sys; print(os.path.realpath(sys.argv[1]))' "$1"
+  fi
 }
 
 prefix="$(realpath_existing "$prefix")"
