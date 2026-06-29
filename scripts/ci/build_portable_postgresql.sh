@@ -254,7 +254,17 @@ configure_postgresql() {
   fi
 
   pushd "$build_dir" >/dev/null
-  "${source_dir}/configure" --prefix="$install_root" ${configure_flags[@]+"${configure_flags[@]}"}
+  if [[ "${TARGET}" == *windows* ]]; then
+    # MSYS2 normally rewrites path-like arguments for native programs. PostgreSQL
+    # records configure arguments in src/common/config_info.c, so a converted
+    # --prefix=D:\... value becomes invalid C string content (for example, \uc).
+    # Exclude only --prefix from conversion; keep conversion enabled for native
+    # build tools such as UCRT Perl that need Windows paths for file arguments.
+    MSYS2_ARG_CONV_EXCL="--prefix=" \
+      "${source_dir}/configure" --prefix="$install_root" ${configure_flags[@]+"${configure_flags[@]}"}
+  else
+    "${source_dir}/configure" --prefix="$install_root" ${configure_flags[@]+"${configure_flags[@]}"}
+  fi
   popd >/dev/null
 }
 
