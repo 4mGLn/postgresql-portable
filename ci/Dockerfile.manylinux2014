@@ -5,6 +5,7 @@ RUN yum install -y epel-release && \
         bison \
         ccache \
         diffutils \
+        e2fsprogs-devel \
         file \
         findutils \
         flex \
@@ -14,18 +15,30 @@ RUN yum install -y epel-release && \
         git \
         gzip \
         jq \
+        krb5-devel \
         libicu-devel \
+        libuuid-devel \
+        libxml2-devel \
+        libxslt-devel \
+        lz4-devel \
         make \
         openldap-devel \
+        openssl-devel \
+        pam-devel \
         patch \
         patchelf \
         perl \
+        perl-devel \
+        perl-ExtUtils-Embed \
+        python3-devel \
         readline-devel \
         tar \
+        tcl-devel \
         unzip \
         which \
         xz \
         zlib-devel \
+        libzstd-devel \
         zip && \
     yum clean all && \
     rm -rf /var/cache/yum

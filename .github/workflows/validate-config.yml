@@ -75,7 +75,33 @@ jobs:
             fi
           done
 
+          # Validate configure_flags_exclude: keys must be known targets,
+          # values must be flags that exist in configure_flags.
+          mapfile -t base_flags < <(jq -r '.portable.configure_flags[]?' "$config")
+          mapfile -t exclude_targets < <(jq -r '.portable.configure_flags_exclude // {} | keys[]' "$config")
+          for t in "${exclude_targets[@]}"; do
+            if ! jq -e --arg t "$t" '.portable.targets[$t]' "$config" >/dev/null 2>&1; then
+              echo "FAIL: configure_flags_exclude has unknown target '$t'" >&2
+              exit 1
+            fi
+            mapfile -t excl_flags < <(jq -r --arg t "$t" \
+              '.portable.configure_flags_exclude[$t][]?' "$config")
+            for excl in "${excl_flags[@]}"; do
+              found=0
+              for base in "${base_flags[@]}"; do
+                [[ "$base" == "$excl" ]] && found=1 && break
+              done
+              if (( !found )); then
+                echo "FAIL: configure_flags_exclude[$t] contains '$excl' which is not in configure_flags" >&2
+                exit 1
+              fi
+            done
+          done
+
           echo "Config structure: OK"
           echo "  Tracked majors: ${majors[*]}"
           echo "  Targets: ${targets[*]}"
           echo "  Extensions: ${exts[*]}"
+          if [[ ${#exclude_targets[@]} -gt 0 ]]; then
+            echo "  configure_flags_exclude targets: ${exclude_targets[*]}"
+          fi

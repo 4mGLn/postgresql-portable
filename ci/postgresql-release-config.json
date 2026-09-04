@@ -25,7 +25,30 @@
   "portable": {
     "release_name_prefix": "postgresql-portable",
     "linux_baseline": "manylinux2014",
-    "configure_flags": [],
+    "configure_flags": [
+      "--enable-nls",
+      "--with-icu",
+      "--with-perl",
+      "--with-python",
+      "--with-tcl",
+      "--with-zlib",
+      "--with-lz4",
+      "--with-zstd",
+      "--with-openssl",
+      "--with-gssapi",
+      "--with-ldap",
+      "--with-pam",
+      "--with-libxml",
+      "--with-libxslt",
+      "--with-readline",
+      "--with-uuid=e2fs"
+    ],
+    "configure_flags_exclude": {
+      "windows_x86_64": [
+        "--with-pam",
+        "--with-uuid=e2fs"
+      ]
+    },
     "targets": {
       "unknown-linux_x86_64": {
         "archive_format": "tar.gz",
