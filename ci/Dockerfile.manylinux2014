@@ -17,6 +17,7 @@ RUN yum install -y epel-release && \
         jq \
         krb5-devel \
         libicu-devel \
+        libssh-devel \
         libuuid-devel \
         libxml2-devel \
         libxslt-devel \
