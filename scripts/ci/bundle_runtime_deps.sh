@@ -199,7 +199,7 @@ bundle_macos() {
   local qi=0
   while [[ $qi -lt ${#queue[@]} ]]; do
     file="${queue[$qi]}"
-    (( qi++ ))
+    (( ++qi ))
 
     if ! file "$file" | grep -q 'Mach-O'; then
       continue
@@ -309,7 +309,7 @@ bundle_windows() {
   local qi=0
   while [[ $qi -lt ${#queue[@]} ]]; do
     local file="${queue[$qi]}"
-    (( qi++ ))
+    (( ++qi ))
 
     while IFS= read -r dep; do
       [[ -z "$dep" ]] && continue
