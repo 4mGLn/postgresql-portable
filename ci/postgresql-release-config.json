@@ -35,14 +35,6 @@
       "windows_x86_64": {
         "archive_format": "zip",
         "runner": "windows-2022"
-      },
-      "macos_x86_64": {
-        "archive_format": "tar.gz",
-        "runner": "macos-13"
-      },
-      "macos_aarch64": {
-        "archive_format": "tar.gz",
-        "runner": "macos-14"
       }
     }
   },

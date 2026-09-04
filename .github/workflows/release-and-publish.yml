@@ -152,88 +152,6 @@ jobs:
             dist/*.sha256
             dist/release-${{ matrix.major }}-unknown-linux_x86_64.env
 
-  build-macos:
-    needs: plan
-    strategy:
-      fail-fast: false
-      matrix:
-        major: ${{ fromJson(needs.plan.outputs.majors) }}
-        target:
-          - macos_x86_64
-          - macos_aarch64
-        include:
-          - target: macos_x86_64
-            runner: macos-13
-          - target: macos_aarch64
-            runner: macos-14
-    runs-on: ${{ matrix.runner }}
-    env:
-      CCACHE_DIR: /tmp/ccache
-      CC: ccache gcc
-      CXX: ccache g++
-    steps:
-      - name: Compute cache week key
-        id: week
-        run: echo "key=$(date +%Y-W%V)" >> "$GITHUB_OUTPUT"
-
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Restore Homebrew cache
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/Library/Caches/Homebrew/downloads
-            ~/Library/Caches/Homebrew/Cask
-          key: brew-${{ matrix.target }}-${{ hashFiles('.github/workflows/release-and-publish.yml') }}
-          restore-keys: |
-            brew-${{ matrix.target }}-
-
-      - name: Install macOS build dependencies
-        run: |
-          set -euo pipefail
-          brew install ccache icu4c gettext openldap readline zlib
-          echo "PKG_CONFIG_PATH=$(brew --prefix icu4c)/lib/pkgconfig:$(brew --prefix readline)/lib/pkgconfig:$(brew --prefix zlib)/lib/pkgconfig:$(brew --prefix openldap)/lib/pkgconfig${PKG_CONFIG_PATH:+:$PKG_CONFIG_PATH}" >> "$GITHUB_ENV"
-          echo "LDFLAGS=-L$(brew --prefix readline)/lib -L$(brew --prefix zlib)/lib -L$(brew --prefix openldap)/lib -L$(brew --prefix icu4c)/lib -L$(brew --prefix gettext)/lib${LDFLAGS:+ $LDFLAGS}" >> "$GITHUB_ENV"
-          echo "CPPFLAGS=-I$(brew --prefix readline)/include -I$(brew --prefix zlib)/include -I$(brew --prefix openldap)/include -I$(brew --prefix icu4c)/include -I$(brew --prefix gettext)/include${CPPFLAGS:+ $CPPFLAGS}" >> "$GITHUB_ENV"
-
-      - name: Restore ccache
-        uses: actions/cache@v4
-        with:
-          path: /tmp/ccache
-          key: ccache-${{ matrix.target }}-pg${{ matrix.major }}-${{ steps.week.outputs.key }}
-          restore-keys: |
-            ccache-${{ matrix.target }}-pg${{ matrix.major }}-
-
-      - name: Configure ccache
-        run: |
-          mkdir -p "$CCACHE_DIR"
-          ccache --max-size=500M
-          ccache --zero-stats
-
-      - name: Build portable PostgreSQL archive set
-        run: |
-          set -euo pipefail
-          chmod +x scripts/ci/*.sh scripts/*.sh
-          scripts/ci/build_portable_postgresql.sh \
-            --config ci/postgresql-release-config.json \
-            --major "${{ matrix.major }}" \
-            --target "${{ matrix.target }}" \
-            --output-dir dist
-
-      - name: Show ccache stats
-        if: always()
-        run: ccache --show-stats
-
-      - name: Upload macOS artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: postgresql-portable-pg${{ matrix.major }}-${{ matrix.target }}
-          path: |
-            dist/*.tar.gz
-            dist/*.sha256
-            dist/release-${{ matrix.major }}-${{ matrix.target }}.env
-
   build-windows:
     needs: plan
     runs-on: windows-2022
@@ -268,6 +186,7 @@ jobs:
             mingw-w64-x86_64-gettext
             mingw-w64-x86_64-icu
             mingw-w64-x86_64-jq
+            mingw-w64-x86_64-pkg-config
             mingw-w64-x86_64-openldap
             mingw-w64-x86_64-readline
             mingw-w64-x86_64-zlib
@@ -328,7 +247,6 @@ jobs:
     needs:
       - plan
       - build-linux
-      - build-macos
       - build-windows
     runs-on: ubuntu-latest
     strategy:

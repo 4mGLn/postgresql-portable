@@ -12,8 +12,6 @@ This repository builds portable, relocatable PostgreSQL release archives for:
 
 - `unknown-linux_x86_64` — CentOS 7+ / glibc 2.17+ (built on manylinux2014)
 - `windows_x86_64` — Windows 10+ (MSYS2/MinGW-w64)
-- `macos_x86_64` — macOS 13+
-- `macos_aarch64` — macOS 14+ (Apple Silicon)
 
 ## Packaging Contract
 
@@ -106,7 +104,6 @@ The CI pipeline is optimized for fast subsequent runs:
 
 - **Pre-built container** — Linux builds use a GHCR-hosted Docker image with all dependencies pre-installed, eliminating ~3 min of `yum install` per run
 - **ccache** — compilation cache across all platforms with weekly key rotation, reducing recompilation to cache lookups (~60-70% faster)
-- **Homebrew cache** — macOS package downloads are cached between runs
 
 First run: ~25 min. Subsequent cached runs: ~8-12 min.
 
