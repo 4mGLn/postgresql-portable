@@ -88,7 +88,7 @@ linux_skip_dependency() {
   local basename
   basename="$(basename "$1")"
   case "$basename" in
-    linux-vdso.so.*|ld-linux*.so*|libc.so.*|libm.so.*|libpthread.so.*|librt.so.*|libdl.so.*|libresolv.so.*|libnsl.so.*|libutil.so.*|libcrypt.so.*)
+    linux-vdso.so.*|ld-linux*.so*|libc.so.*|libm.so.*|libpthread.so.*|librt.so.*|libdl.so.*|libresolv.so.*|libnsl.so.*|libutil.so.*)
       return 0
       ;;
     *)
