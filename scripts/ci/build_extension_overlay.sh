@@ -131,13 +131,32 @@ else
 fi
 
 pushd "$ext_src" >/dev/null
+
+# On Windows/MinGW, PGXS expects win32ver.rc for version resource embedding.
+if [[ "$target" == *windows* ]] && [[ ! -f win32ver.rc ]]; then
+  printf '#include <winver.h>\nVS_VERSION_INFO VERSIONINFO BEGIN END\n' > win32ver.rc
+fi
+
 make clean >/dev/null 2>&1 || true
 PATH="${install_prefix}/bin:${PATH}" make -j"$jobs" USE_PGXS=1 PG_CONFIG="${install_prefix}/bin/pg_config"
 PATH="${install_prefix}/bin:${PATH}" make USE_PGXS=1 PG_CONFIG="${install_prefix}/bin/pg_config" DESTDIR="$ext_stage" install
 popd >/dev/null
 
-if [[ ! -d "$ext_stage_prefix" ]]; then
-  echo "Extension $extension did not stage files beneath ${ext_stage_prefix}" >&2
+# Discover where PGXS actually staged files by finding the .control file.
+# On MSYS2, realpath_existing and pg_config can return different path forms,
+# so we locate files dynamically instead of computing ext_stage_prefix.
+staged_control="$(find "$ext_stage" -name "*.control" -path "*/share/extension/*" -print -quit 2>/dev/null)"
+if [[ -n "$staged_control" ]]; then
+  # .control lives at <prefix>/share/extension/foo.control — go up 3 levels
+  ext_stage_prefix="$(cd "$(dirname "$staged_control")/../../.." && pwd)"
+elif [[ -d "$ext_stage_prefix" ]]; then
+  : # original computed path works, use it
+else
+  echo "ERROR: Extension $extension did not install files under ${ext_stage}" >&2
+  echo "  install_prefix: $install_prefix" >&2
+  echo "  expected stage prefix: $ext_stage_prefix" >&2
+  echo "  Contents of stage dir:" >&2
+  find "$ext_stage" -type f 2>/dev/null | head -20 >&2 || true
   exit 1
 fi
 
