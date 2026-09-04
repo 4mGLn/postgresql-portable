@@ -1,0 +1,60 @@
+name: Sync PostgreSQL Upstream
+
+on:
+  schedule:
+    - cron: "25 0 1,15 * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Sync release config with upstream tags
+        id: sync
+        run: |
+          set -euo pipefail
+          chmod +x scripts/ci/*.sh
+          changed_json="$(scripts/ci/sync_upstream_config.sh --config ci/postgresql-release-config.json)"
+          changed_count="$(echo "$changed_json" | jq 'length')"
+          changed_csv="$(echo "$changed_json" | jq -r 'join(",")')"
+          echo "changed_json=$changed_json" >> "$GITHUB_OUTPUT"
+          echo "changed_count=$changed_count" >> "$GITHUB_OUTPUT"
+          echo "changed_csv=$changed_csv" >> "$GITHUB_OUTPUT"
+
+      - name: Create PR
+        id: cpr
+        if: steps.sync.outputs.changed_count != '0'
+        uses: peter-evans/create-pull-request@v6
+        with:
+          commit-message: "chore(upstream): sync portable PostgreSQL releases (${{ steps.sync.outputs.changed_csv }})"
+          title: "chore(upstream): sync portable PostgreSQL releases (${{ steps.sync.outputs.changed_csv }})"
+          body: |
+            This PR was created automatically.
+
+            Updated file:
+            - `ci/postgresql-release-config.json`
+
+            Changed PostgreSQL majors:
+            - `${{ steps.sync.outputs.changed_csv }}`
+          branch: automation/upstream-sync-${{ github.run_id }}
+          delete-branch: true
+          labels: |
+            automation
+            upstream-sync
+
+      - name: Enable PR auto-merge
+        if: steps.sync.outputs.changed_count != '0' && steps.cpr.outputs.pull-request-number != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ steps.cpr.outputs.pull-request-number }}
+        run: |
+          set -euo pipefail
+          gh pr merge --auto --squash "$PR_NUMBER" || \
+            echo "Auto-merge could not be enabled. Check repository auto-merge settings."
