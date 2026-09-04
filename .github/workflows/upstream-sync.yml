@@ -8,6 +8,7 @@ on:
 permissions:
   contents: write
   pull-requests: write
+  actions: write
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
@@ -25,8 +26,10 @@ jobs:
           set -euo pipefail
           chmod +x scripts/ci/*.sh
           changed_json="$(scripts/ci/sync_upstream_config.sh --config ci/postgresql-release-config.json)"
-          changed_count="$(echo "$changed_json" | jq 'length')"
-          changed_csv="$(echo "$changed_json" | jq -r 'join(",")')"
+          changed_count="$(jq -r 'length' <<<"$changed_json")"
+          changed_csv="$(jq -r 'join(",")' <<<"$changed_json")"
+
+          echo "Changed majors: ${changed_csv:-none}"
           echo "changed_json=$changed_json" >> "$GITHUB_OUTPUT"
           echo "changed_count=$changed_count" >> "$GITHUB_OUTPUT"
           echo "changed_csv=$changed_csv" >> "$GITHUB_OUTPUT"
@@ -46,11 +49,25 @@ jobs:
 
             Changed PostgreSQL majors:
             - `${{ steps.sync.outputs.changed_csv }}`
-          branch: automation/upstream-sync-${{ github.run_id }}
+          branch: automation/upstream-sync
           delete-branch: true
           labels: |
             automation
             upstream-sync
+
+      - name: Dispatch release build for changed majors
+        if: steps.sync.outputs.changed_count != '0' && steps.cpr.outputs.pull-request-number != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CHANGED_MAJORS: ${{ steps.sync.outputs.changed_csv }}
+          RELEASE_REF: automation/upstream-sync
+        run: |
+          set -euo pipefail
+          echo "Dispatching release-and-publish.yml for PostgreSQL major(s): ${CHANGED_MAJORS} on ${RELEASE_REF}"
+          gh workflow run release-and-publish.yml \
+            --ref "$RELEASE_REF" \
+            --field majors="$CHANGED_MAJORS" \
+            --field publish=true
 
       - name: Enable PR auto-merge
         if: steps.sync.outputs.changed_count != '0' && steps.cpr.outputs.pull-request-number != ''

@@ -171,7 +171,7 @@ jobs:
       - name: Set up MSYS2
         uses: msys2/setup-msys2@v2
         with:
-          msystem: MINGW64
+          msystem: UCRT64
           update: false
           install: >-
             autoconf
@@ -181,24 +181,24 @@ jobs:
             flex
             git
             make
-            mingw-w64-x86_64-ccache
-            mingw-w64-x86_64-gcc
-            mingw-w64-x86_64-gettext
-            mingw-w64-x86_64-icu
-            mingw-w64-x86_64-jq
-            mingw-w64-x86_64-libxml2
-            mingw-w64-x86_64-libxslt
-            mingw-w64-x86_64-lz4
-            mingw-w64-x86_64-openldap
-            mingw-w64-x86_64-openssl
-            mingw-w64-x86_64-perl
-            mingw-w64-x86_64-pkg-config
-            mingw-w64-x86_64-python
-            mingw-w64-x86_64-readline
-            mingw-w64-x86_64-tcl
-            mingw-w64-x86_64-tools-git
-            mingw-w64-x86_64-zlib
-            mingw-w64-x86_64-zstd
+            mingw-w64-ucrt-x86_64-ccache
+            mingw-w64-ucrt-x86_64-gcc
+            mingw-w64-ucrt-x86_64-gettext
+            mingw-w64-ucrt-x86_64-icu
+            mingw-w64-ucrt-x86_64-jq
+            mingw-w64-ucrt-x86_64-libxml2
+            mingw-w64-ucrt-x86_64-libxslt
+            mingw-w64-ucrt-x86_64-lz4
+            mingw-w64-ucrt-x86_64-openldap
+            mingw-w64-ucrt-x86_64-openssl
+            mingw-w64-ucrt-x86_64-perl
+            mingw-w64-ucrt-x86_64-pkg-config
+            mingw-w64-ucrt-x86_64-python
+            mingw-w64-ucrt-x86_64-readline
+            mingw-w64-ucrt-x86_64-tcl
+            mingw-w64-ucrt-x86_64-tools-git
+            mingw-w64-ucrt-x86_64-zlib
+            mingw-w64-ucrt-x86_64-zstd
             perl
             tar
             unzip
@@ -231,7 +231,7 @@ jobs:
           # GHA Windows runners uppercase env var names; lowercase autoconf cache
           # variables must be exported here in bash so they survive into configure.
           # All AC_CHECK_LIB / AC_SEARCH_LIBS conftests fail to link because
-          # MinGW64 GCC does not resolve /mingw64/lib in its default search path
+          # MSYS2 UCRT64 GCC does not resolve /ucrt64/lib in its default search path
           # when LDFLAGS is empty at configure time. Pre-set every mandatory
           # library cache variable so configure skips the broken link tests and
           # runs its ACTION-IF-FOUND (which adds the -l flag to LIBS).

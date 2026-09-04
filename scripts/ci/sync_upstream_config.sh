@@ -53,7 +53,7 @@ jq \
 
 mv "$updated" "$config"
 
-jq -c \
+jq -n -c \
   --slurpfile old "$before" \
   --slurpfile new "$config" \
   '

@@ -11,7 +11,7 @@ This project eliminates that friction. It produces fully self-contained, relocat
 This repository builds portable, relocatable PostgreSQL release archives for:
 
 - `unknown-linux_x86_64` — CentOS 7+ / glibc 2.17+ (built on manylinux2014)
-- `windows_x86_64` — Windows 10+ (MSYS2/MinGW-w64)
+- `windows_x86_64` — Windows 10+ (MSYS2/UCRT64 MinGW-w64)
 
 ## Packaging Contract
 
@@ -81,10 +81,10 @@ New PostgreSQL patch releases are picked up automatically:
 
 1. **`upstream-sync.yml`** runs on the 1st and 15th of each month (or manually)
 2. It discovers new release tags and updates `ci/postgresql-release-config.json`
-3. A PR is created and auto-merge is requested
-4. **`validate-config.yml`** runs on the PR to validate the config structure
-5. Once the check passes, the PR auto-merges into `main`
-6. **`release-and-publish.yml`** triggers and builds + publishes all platforms
+3. A PR is created or updated on the stable `automation/upstream-sync` branch
+4. **`release-and-publish.yml`** is explicitly dispatched for the changed majors, so publishing does not depend on a `GITHUB_TOKEN` auto-merge push recursively triggering another workflow
+5. **`validate-config.yml`** runs on the PR to validate the config structure
+6. Once the check passes, the PR auto-merges into `main`
 
 ## Bundled Features
 
