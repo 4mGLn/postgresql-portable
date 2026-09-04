@@ -20,6 +20,12 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Lowercase image name
+        id: meta
+        env:
+          REPO: ${{ github.repository }}
+        run: echo "image=ghcr.io/${REPO,,}/build-manylinux2014" >> "$GITHUB_OUTPUT"
+
       - name: Log in to GHCR
         uses: docker/login-action@v3
         with:
@@ -37,7 +43,7 @@ jobs:
           file: ci/Dockerfile.manylinux2014
           push: true
           tags: |
-            ghcr.io/${{ github.repository }}/build-manylinux2014:latest
-            ghcr.io/${{ github.repository }}/build-manylinux2014:${{ github.run_number }}-${{ github.sha }}
+            ${{ steps.meta.outputs.image }}:latest
+            ${{ steps.meta.outputs.image }}:${{ github.run_number }}-${{ github.sha }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
