@@ -226,10 +226,6 @@ jobs:
           CCACHE_DIR: /tmp/ccache
           CC: ccache gcc
           CXX: ccache g++
-          # Keep configure arguments such as --prefix=/d/a/... in POSIX form.
-          # Without this, MSYS2 path conversion rewrites them to D:\\..., and
-          # PostgreSQL embeds those unescaped backslashes in config_info.c.
-          MSYS2_ARG_CONV_EXCL: "*"
         run: |
           set -euo pipefail
           # GHA Windows runners uppercase env var names; lowercase autoconf cache
