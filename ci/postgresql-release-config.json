@@ -65,7 +65,9 @@
     "pg_cron": {
       "repo": "https://github.com/citusdata/pg_cron.git",
       "ref": "v1.6.7",
-      "skip_targets": ["windows_x86_64"],
+      "skip_targets": [
+        "windows_x86_64"
+      ],
       "notes": [
         "Requires shared_preload_libraries = 'pg_cron'.",
         "Set cron.database_name in postgresql.conf before CREATE EXTENSION if you do not want to use the default postgres database.",
