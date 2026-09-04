@@ -81,19 +81,10 @@ jobs:
   build-linux:
     needs: plan
     runs-on: ubuntu-24.04
-    container:
-      image: ${{ needs.plan.outputs.container_image }}
-      credentials:
-        username: ${{ github.actor }}
-        password: ${{ secrets.GITHUB_TOKEN }}
     strategy:
       fail-fast: false
       matrix:
         major: ${{ fromJson(needs.plan.outputs.majors) }}
-    env:
-      CCACHE_DIR: /ccache
-      CC: ccache gcc
-      CXX: ccache g++
     steps:
       - name: Compute cache week key
         id: week
@@ -102,64 +93,55 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Install Linux build dependencies (safety net)
-        run: |
-          set -euo pipefail
-          yum install -y epel-release
-          yum install -y \
-            bison \
-            ccache \
-            diffutils \
-            file \
-            findutils \
-            flex \
-            gcc \
-            gcc-c++ \
-            git \
-            gzip \
-            gettext-devel \
-            jq \
-            libicu-devel \
-            make \
-            openldap-devel \
-            patch \
-            patchelf \
-            perl \
-            readline-devel \
-            tar \
-            unzip \
-            which \
-            xz \
-            zlib-devel \
-            zip
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Pull build container
+        run: docker pull "${{ needs.plan.outputs.container_image }}"
 
       - name: Restore ccache
         uses: actions/cache@v4
         with:
-          path: /ccache
+          path: /tmp/ccache-linux
           key: ccache-linux-pg${{ matrix.major }}-${{ steps.week.outputs.key }}
           restore-keys: |
             ccache-linux-pg${{ matrix.major }}-
 
-      - name: Configure ccache
-        run: |
-          mkdir -p "$CCACHE_DIR"
-          ccache --max-size=500M
-          ccache --zero-stats
-
       - name: Build portable PostgreSQL archive set
         run: |
           set -euo pipefail
-          chmod +x scripts/ci/*.sh scripts/*.sh
-          scripts/ci/build_portable_postgresql.sh \
-            --config ci/postgresql-release-config.json \
-            --major "${{ matrix.major }}" \
-            --target unknown-linux_x86_64 \
-            --output-dir dist
+          mkdir -p /tmp/ccache-linux
+          docker run --rm \
+            -v "${{ github.workspace }}:${{ github.workspace }}" \
+            -v "/tmp/ccache-linux:/ccache" \
+            -w "${{ github.workspace }}" \
+            -e CCACHE_DIR=/ccache \
+            -e CC="ccache gcc" \
+            -e CXX="ccache g++" \
+            "${{ needs.plan.outputs.container_image }}" \
+            bash -c "
+              set -euo pipefail
+              ccache --max-size=500M
+              ccache --zero-stats
+              chmod +x scripts/ci/*.sh scripts/*.sh
+              scripts/ci/build_portable_postgresql.sh \
+                --config ci/postgresql-release-config.json \
+                --major '${{ matrix.major }}' \
+                --target unknown-linux_x86_64 \
+                --output-dir dist
+              echo '--- ccache stats ---'
+              ccache --show-stats
+            "
 
-      - name: Show ccache stats
-        if: always()
-        run: ccache --show-stats
+      - name: Fix output permissions
+        run: |
+          if [[ -d dist ]]; then
+            sudo chown -R "$(id -u):$(id -g)" dist/
+          fi
 
       - name: Upload Linux artifacts
         uses: actions/upload-artifact@v4
