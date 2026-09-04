@@ -287,40 +287,11 @@ Contents:
 - lib/: bundled shared libraries needed by the portable build
 - share/: PostgreSQL shared data
 
-Activation helpers:
-- env.sh
-- env.ps1
-- env.cmd
-
 Linux note:
 - The Linux archive is built on the ${LINUX_BASELINE} userspace baseline to reduce
   host distribution coupling, but glibc/kernel compatibility still applies.
 EOF
 
-  cat > "${install_root}/env.sh" <<'EOF'
-#!/usr/bin/env bash
-set -euo pipefail
-
-ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-export PATH="${ROOT}/bin:${PATH}"
-
-echo "Portable PostgreSQL environment loaded from ${ROOT}"
-EOF
-
-  cat > "${install_root}/env.ps1" <<'EOF'
-$Root = Split-Path -Parent $MyInvocation.MyCommand.Path
-$env:Path = "$Root\bin;$env:Path"
-Write-Host "Portable PostgreSQL environment loaded from $Root"
-EOF
-
-  cat > "${install_root}/env.cmd" <<'EOF'
-@echo off
-set ROOT=%~dp0
-set PATH=%ROOT%bin;%PATH%
-echo Portable PostgreSQL environment loaded from %ROOT%
-EOF
-
-  chmod +x "${install_root}/env.sh" "${install_root}/env.cmd"
 }
 
 build_external_overlays() {
