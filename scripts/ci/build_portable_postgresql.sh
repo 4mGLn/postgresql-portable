@@ -267,13 +267,18 @@ configure_postgresql() {
   fi
 
   if [[ "${TARGET}" == *windows* ]]; then
-    # PostgreSQL records configure metadata in string macros inside pg_config.h.
-    # MSYS2/UCRT dependency probes can still record native D:\... paths there,
-    # which later expand into invalid C string escapes such as \uc when
-    # src/common/config_info.c is compiled. Normalize only the generated metadata
-    # macros; do not alter Makefile paths used by native build tools.
-    perl -pi -e 'if (/^#define\s+(?:CONFIGURE_ARGS|VAL_[A-Z0-9_]+)\s+"/) { tr#\\#/# }' \
+    # PostgreSQL records build metadata in two places: CONFIGURE_ARGS in the
+    # generated header and VAL_* compiler definitions from src/common/Makefile.
+    # On MSYS2/UCRT, PostgreSQL 16/17 can put quoted -I... win32 paths inside
+    # STD_CPPFLAGS.  When Makefile wraps that value again for -DVAL_CPPFLAGS,
+    # GCC sees malformed C-string content and config_info.c fails with escape
+    # errors such as "incomplete universal character name \uc".  This metadata
+    # is informational (pg_config --configure/--cppflags), so keep functional
+    # compiler flags untouched and make only the recorded string portable/safe.
+    perl -pi -e 'if (/^#define\s+CONFIGURE_ARGS\s+"/) { tr#\\#/# }' \
       "${build_dir}/src/include/pg_config.h"
+    perl -pi -e 's#^override CPPFLAGS \+= -DVAL_CPPFLAGS=.*#override CPPFLAGS += -DVAL_CPPFLAGS="\\"not recorded for portable Windows CI\\""#' \
+      "${source_dir}/src/common/Makefile"
   fi
 
   popd >/dev/null
