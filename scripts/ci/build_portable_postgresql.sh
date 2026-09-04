@@ -185,6 +185,14 @@ build_postgresql() {
   make -C contrib -j"$jobs"
   make -C contrib install
   popd >/dev/null
+
+  # On Windows/MinGW, PGXS extension builds need win32ver.rc from the source tree.
+  # Copy it into the installed PGXS tree so extensions can build against this prefix.
+  if [[ "$TARGET" == *windows* ]] && [[ -f "${source_dir}/src/port/win32ver.rc" ]]; then
+    local pgxs_port_dir="${install_root}/lib/pgxs/src/port"
+    mkdir -p "$pgxs_port_dir"
+    cp "${source_dir}/src/port/win32ver.rc" "$pgxs_port_dir/"
+  fi
 }
 
 write_portable_helpers() {
