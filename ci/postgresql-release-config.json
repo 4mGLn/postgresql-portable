@@ -1,12 +1,17 @@
 {
   "postgresql": {
     "tracked_majors": [
+      "16",
       "17",
       "18"
     ],
     "upstream_git_repo": "https://github.com/postgres/postgres.git",
     "source_tarball_url_template": "https://ftp.postgresql.org/pub/source/v{version}/postgresql-{version}.tar.gz",
     "releases": {
+      "16": {
+        "tag": "REL_16_13",
+        "version": "16.13"
+      },
       "17": {
         "tag": "REL_17_9",
         "version": "17.9"
@@ -53,6 +58,7 @@
     "pg_hint_plan": {
       "repo": "https://github.com/ossc-db/pg_hint_plan.git",
       "refs": {
+        "16": "REL16_1_6_2",
         "17": "REL17_1_7_1",
         "18": "REL18_1_8_0"
       },
