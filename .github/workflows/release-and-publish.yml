@@ -243,7 +243,7 @@ jobs:
             dist/release-${{ matrix.major }}-windows_x86_64.env
 
   publish:
-    if: needs.plan.outputs.should_publish == 'true'
+    if: always() && needs.plan.outputs.should_publish == 'true' && needs.plan.result == 'success'
     needs:
       - plan
       - build-linux
@@ -254,6 +254,14 @@ jobs:
       matrix:
         major: ${{ fromJson(needs.plan.outputs.majors) }}
     steps:
+      - name: Check for any successful builds
+        run: |
+          if [[ "${{ needs.build-linux.result }}" != "success" && "${{ needs.build-windows.result }}" != "success" ]]; then
+            echo "No builds succeeded — skipping publish"
+            exit 1
+          fi
+          echo "At least one platform build succeeded — proceeding"
+
       - name: Checkout
         uses: actions/checkout@v4
 
