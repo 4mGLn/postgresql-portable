@@ -230,6 +230,47 @@ download_source() {
   tar -xzf "$source_archive" -C "$source_root"
 }
 
+sanitize_windows_config_metadata() {
+  [[ "${TARGET}" == *windows* ]] || return 0
+
+  # PostgreSQL records build metadata in two places: CONFIGURE_ARGS in the
+  # generated header and VAL_* compiler definitions from src/common/Makefile.
+  # On MSYS2/UCRT, PostgreSQL 16/17 can put quoted -I... win32 paths inside
+  # STD_CPPFLAGS.  When Makefile wraps that value again for -DVAL_CPPFLAGS,
+  # GCC sees malformed C-string content and config_info.c fails with escape
+  # errors such as "incomplete universal character name \uc".  This metadata
+  # is informational (pg_config --configure/--cppflags), so keep functional
+  # compiler flags untouched and make only the recorded string portable/safe.
+  if [[ -f "${build_dir}/src/include/pg_config.h" ]]; then
+    perl -pi -e 'if (/^#define\s+CONFIGURE_ARGS\s+"/) { tr#\\#/# }' \
+      "${build_dir}/src/include/pg_config.h"
+  fi
+
+  local makefile
+  local patched=0
+  for makefile in \
+    "${source_dir}/src/common/Makefile" \
+    "${build_dir}/src/common/Makefile"
+  do
+    [[ -e "$makefile" ]] || continue
+    perl -pi -e '
+      if (s#^override\s+CPPFLAGS\s*\+=\s*-DVAL_CPPFLAGS=.*#override CPPFLAGS += -DVAL_CPPFLAGS="\\"not recorded for portable Windows CI\\""#) {
+        ++$patched;
+      }
+      END { exit($patched ? 0 : 7) }
+    ' "$makefile" && patched=1
+  done
+
+  if (( patched == 0 )); then
+    echo "FATAL: could not sanitize PostgreSQL VAL_CPPFLAGS metadata for Windows." >&2
+    echo "  Expected src/common/Makefile to define -DVAL_CPPFLAGS." >&2
+    return 1
+  fi
+
+  echo "Sanitized Windows PostgreSQL config metadata:"
+  grep -Hn 'VAL_CPPFLAGS' "${source_dir}/src/common/Makefile" "${build_dir}/src/common/Makefile" 2>/dev/null || true
+}
+
 configure_postgresql() {
   local -a configure_flags=()
   mapfile -t configure_flags < <(jq -r '.portable.configure_flags[]?' "$config" | tr -d '\r')
@@ -266,25 +307,16 @@ configure_postgresql() {
     "${source_dir}/configure" --prefix="$install_root" ${configure_flags[@]+"${configure_flags[@]}"}
   fi
 
-  if [[ "${TARGET}" == *windows* ]]; then
-    # PostgreSQL records build metadata in two places: CONFIGURE_ARGS in the
-    # generated header and VAL_* compiler definitions from src/common/Makefile.
-    # On MSYS2/UCRT, PostgreSQL 16/17 can put quoted -I... win32 paths inside
-    # STD_CPPFLAGS.  When Makefile wraps that value again for -DVAL_CPPFLAGS,
-    # GCC sees malformed C-string content and config_info.c fails with escape
-    # errors such as "incomplete universal character name \uc".  This metadata
-    # is informational (pg_config --configure/--cppflags), so keep functional
-    # compiler flags untouched and make only the recorded string portable/safe.
-    perl -pi -e 'if (/^#define\s+CONFIGURE_ARGS\s+"/) { tr#\\#/# }' \
-      "${build_dir}/src/include/pg_config.h"
-    perl -pi -e 's#^override CPPFLAGS \+= -DVAL_CPPFLAGS=.*#override CPPFLAGS += -DVAL_CPPFLAGS="\\"not recorded for portable Windows CI\\""#' \
-      "${source_dir}/src/common/Makefile"
-  fi
+  sanitize_windows_config_metadata
 
   popd >/dev/null
 }
 
 build_postgresql() {
+  # Re-apply immediately before make in case configure regenerated build-tree
+  # symlinks/files after the first sanitization pass.
+  sanitize_windows_config_metadata
+
   pushd "$build_dir" >/dev/null
   make -j"$jobs"
   make install
