@@ -45,6 +45,7 @@
     ],
     "configure_flags_exclude": {
       "windows_x86_64": [
+        "--with-gssapi",
         "--with-pam",
         "--with-python",
         "--with-uuid=e2fs"
