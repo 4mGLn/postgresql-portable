@@ -265,6 +265,17 @@ configure_postgresql() {
   else
     "${source_dir}/configure" --prefix="$install_root" ${configure_flags[@]+"${configure_flags[@]}"}
   fi
+
+  if [[ "${TARGET}" == *windows* ]]; then
+    # PostgreSQL records configure metadata in string macros inside pg_config.h.
+    # MSYS2/UCRT dependency probes can still record native D:\... paths there,
+    # which later expand into invalid C string escapes such as \uc when
+    # src/common/config_info.c is compiled. Normalize only the generated metadata
+    # macros; do not alter Makefile paths used by native build tools.
+    perl -pi -e 'if (/^#define\s+(?:CONFIGURE_ARGS|VAL_[A-Z0-9_]+)\s+"/) { tr#\\#/# }' \
+      "${build_dir}/src/include/pg_config.h"
+  fi
+
   popd >/dev/null
 }
 
