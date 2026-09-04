@@ -196,6 +196,7 @@ jobs:
             mingw-w64-x86_64-python
             mingw-w64-x86_64-readline
             mingw-w64-x86_64-tcl
+            mingw-w64-x86_64-tools-git
             mingw-w64-x86_64-zlib
             mingw-w64-x86_64-zstd
             perl
