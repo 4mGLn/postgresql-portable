@@ -34,12 +34,27 @@ jobs:
           echo "changed_count=$changed_count" >> "$GITHUB_OUTPUT"
           echo "changed_csv=$changed_csv" >> "$GITHUB_OUTPUT"
 
+      - name: Configure signed commits
+        if: steps.sync.outputs.changed_count != '0'
+        env:
+          SIGNING_KEY: ${{ secrets.COMMIT_SIGNING_KEY }}
+        run: |
+          set -euo pipefail
+          install -d -m 700 ~/.ssh
+          printf '%s\n' "$SIGNING_KEY" > ~/.ssh/commit_signing_key
+          chmod 600 ~/.ssh/commit_signing_key
+          git config --global gpg.format ssh
+          git config --global user.signingkey ~/.ssh/commit_signing_key
+          git config --global commit.gpgsign true
+
       - name: Create PR
         id: cpr
         if: steps.sync.outputs.changed_count != '0'
         uses: peter-evans/create-pull-request@v6
         with:
           commit-message: "chore(upstream): sync portable PostgreSQL releases (${{ steps.sync.outputs.changed_csv }})"
+          author: "4mGLn <127629+4mGLn@users.noreply.github.com>"
+          committer: "4mGLn <127629+4mGLn@users.noreply.github.com>"
           title: "chore(upstream): sync portable PostgreSQL releases (${{ steps.sync.outputs.changed_csv }})"
           body: |
             This PR was created automatically.
