@@ -64,6 +64,14 @@
     }
   },
   "separate_extensions": {
+    "credcheck": {
+      "repo": "https://github.com/HexaCluster/credcheck.git",
+      "ref": "v5.0",
+      "notes": [
+        "Requires shared_preload_libraries = 'credcheck'.",
+        "Enable with CREATE EXTENSION credcheck;"
+      ]
+    },
     "pg_cron": {
       "repo": "https://github.com/citusdata/pg_cron.git",
       "ref": "v1.6.7",
