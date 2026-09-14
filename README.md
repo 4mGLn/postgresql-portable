@@ -23,6 +23,7 @@ Third-party extensions are built and released as separate overlay archives:
 - `pg_partman`
 - `pg_cron`
 - `pgvector`
+- `credcheck`
 
 Each overlay archive is intended to be extracted over the matching base package for the same PostgreSQL version and target.
 
