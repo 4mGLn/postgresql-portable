@@ -27,6 +27,11 @@ Third-party extensions are built and released as separate overlay archives:
 
 Each overlay archive is intended to be extracted over the matching base package for the same PostgreSQL version and target.
 
+`credcheck` is currently Linux-only. Version 5.0 calls the POSIX `strcasestr()` API,
+which is unavailable in the MSYS2/MinGW Windows toolchain, so the release workflow
+skips this overlay for `windows_x86_64` until an upstream Windows-compatible release
+is available.
+
 ## Linux Portability
 
 The Linux build uses the `manylinux2014` container (CentOS 7 base, glibc 2.17) to maximize compatibility across distributions. ELF binaries are patched with `patchelf` to use `$ORIGIN`-relative RPATHs, making the archive relocatable without system-wide library installation.

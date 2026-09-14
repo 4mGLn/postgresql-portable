@@ -67,8 +67,12 @@
     "credcheck": {
       "repo": "https://github.com/HexaCluster/credcheck.git",
       "ref": "v5.0",
+      "skip_targets": [
+        "windows_x86_64"
+      ],
       "notes": [
         "Requires shared_preload_libraries = 'credcheck'.",
+        "Not built for Windows: credcheck v5.0 uses the POSIX strcasestr() API, which is unavailable in the MSYS2/MinGW Windows toolchain.",
         "Enable with CREATE EXTENSION credcheck;"
       ]
     },
