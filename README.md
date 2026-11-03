@@ -24,6 +24,7 @@ Third-party extensions are built and released as separate overlay archives:
 - `pg_cron`
 - `pgvector`
 - `credcheck`
+- [`system_stats`](https://github.com/EnterpriseDB/system_stats) (`v4.1`)
 
 Each overlay archive is intended to be extracted over the matching base package for the same PostgreSQL version and target.
 
@@ -31,6 +32,12 @@ Each overlay archive is intended to be extracted over the matching base package 
 which is unavailable in the MSYS2/MinGW Windows toolchain, so the release workflow
 skips this overlay for `windows_x86_64` until an upstream Windows-compatible release
 is available.
+
+`system_stats` provides system monitoring functions on Linux and Windows. The
+Windows overlay builds upstream's Windows sources with PGXS/MinGW and links the
+required Windows system libraries. After extracting it, run
+`CREATE EXTENSION system_stats;`. No `shared_preload_libraries` setting is required.
+Functions are restricted to superusers and members of the `monitor_system_stats` role.
 
 ## Linux Portability
 

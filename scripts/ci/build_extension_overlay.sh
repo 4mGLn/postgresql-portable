@@ -134,12 +134,13 @@ if command -v cygpath >/dev/null 2>&1; then
   pg_config_cmd="${ext_root}/pg_config_unix"
   cat > "$pg_config_cmd" <<EOF
 #!/bin/bash
-out="\$(${install_prefix}/bin/pg_config "\$@")"
+out="\$("${install_prefix}/bin/pg_config" "\$@")" || exit \$?
 [[ "\$out" =~ ^[A-Za-z]:/ ]] && out="\$(cygpath -u "\$out")"
 printf '%s\\n' "\$out"
 EOF
   chmod +x "$pg_config_cmd"
-  ext_stage_prefix="${ext_stage}/$("$pg_config_cmd" --prefix | sed 's|^/||')"
+  normalized_install_prefix="$(cygpath -u "$install_prefix")"
+  ext_stage_prefix="${ext_stage}/${normalized_install_prefix#/}"
 fi
 
 if [[ -n "$extension_ref" ]]; then
@@ -155,21 +156,39 @@ if [[ "$target" == *windows* ]] && [[ ! -f win32ver.rc ]]; then
   printf '#include <winver.h>\nVS_VERSION_INFO VERSIONINFO BEGIN END\n' > win32ver.rc
 fi
 
+extension_make_args=(USE_PGXS=1 "PG_CONFIG=$pg_config_cmd")
+if [[ "$extension" == "system_stats" && "$target" == "windows_x86_64" ]]; then
+  # Upstream v4.1 supplies these sources in its Visual Studio project, but
+  # its PGXS Makefile selects objects only for Linux and macOS. MinGW also
+  # ignores MSVC's pragma comment(lib), so pass the Windows libraries here.
+  extension_make_args+=(
+    "OBJS=system_stats.o windows/system_stats_utils.o windows/disk_info.o windows/io_analysis.o windows/cpu_info.o windows/cpu_usage_info.o windows/os_info.o windows/memory_info.o windows/load_avg.o windows/process_info.o windows/network_info.o windows/cpu_memory_by_process.o"
+    # A command-line value overrides PGXS's +=, so retain its backend libs.
+    'SHLIB_LINK=$(BE_DLLLIBS) -lwbemuuid -lole32 -loleaut32 -liphlpapi -lws2_32 -lpsapi -lpdh'
+  )
+fi
+
 make clean >/dev/null 2>&1 || true
-PATH="${install_prefix}/bin:${PATH}" make -j"$jobs" USE_PGXS=1 PG_CONFIG="$pg_config_cmd"
-PATH="${install_prefix}/bin:${PATH}" make USE_PGXS=1 PG_CONFIG="$pg_config_cmd" DESTDIR="$ext_stage" install
+PATH="${install_prefix}/bin:${PATH}" make -j"$jobs" "${extension_make_args[@]}"
+PATH="${install_prefix}/bin:${PATH}" make "${extension_make_args[@]}" DESTDIR="$ext_stage" install
 popd >/dev/null
 
 if [[ ! -d "$ext_stage_prefix" ]]; then
   echo "ERROR: Extension $extension did not stage files beneath ${ext_stage_prefix}" >&2
   echo "  install_prefix: $install_prefix" >&2
-  echo "  pg_config --prefix: $("$pg_config_cmd" --prefix)" >&2
+  echo "  pg_config --bindir: $("$pg_config_cmd" --bindir)" >&2
   echo "  Contents of stage dir:" >&2
   find "$ext_stage" -type f 2>/dev/null | head -20 >&2 || true
   exit 1
 fi
 
 cp -a "${ext_stage_prefix}/." "$ext_package_root/"
+
+# PGXS embeds the build prefix in Linux modules. Normalize it using the same
+# dependency/RPATH handling as the base package before archiving the overlay.
+if [[ "$target" == unknown-linux_* ]]; then
+  "${SCRIPT_DIR}/bundle_runtime_deps.sh" --prefix "$ext_package_root" --target "$target"
+fi
 
 {
   printf 'Portable PostgreSQL extension overlay: %s\n' "$extension"
