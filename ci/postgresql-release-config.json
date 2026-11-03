@@ -113,6 +113,14 @@
       "notes": [
         "Enable with CREATE EXTENSION vector."
       ]
+    },
+    "system_stats": {
+      "repo": "https://github.com/EnterpriseDB/system_stats.git",
+      "ref": "v4.1",
+      "notes": [
+        "Enable with CREATE EXTENSION system_stats; no shared_preload_libraries setting is required.",
+        "Access is restricted to superusers and members of the monitor_system_stats role."
+      ]
     }
   }
 }
