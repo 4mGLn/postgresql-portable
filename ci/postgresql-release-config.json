@@ -9,16 +9,16 @@
     "source_tarball_url_template": "https://ftp.postgresql.org/pub/source/v{version}/postgresql-{version}.tar.gz",
     "releases": {
       "16": {
-        "tag": "REL_16_15",
-        "version": "16.15"
+        "tag": "REL_16_16",
+        "version": "16.16"
       },
       "17": {
-        "tag": "REL_17_11",
-        "version": "17.11"
+        "tag": "REL_17_12",
+        "version": "17.12"
       },
       "18": {
-        "tag": "REL_18_6",
-        "version": "18.6"
+        "tag": "REL_18_7",
+        "version": "18.7"
       }
     }
   },
