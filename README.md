@@ -13,6 +13,9 @@ This repository builds portable, relocatable PostgreSQL release archives for:
 - `unknown-linux_x86_64` — CentOS 7+ / glibc 2.17+ (built on manylinux2014)
 - `windows_x86_64` — Windows 10+ (MSYS2/UCRT64 MinGW-w64)
 
+Tracked PostgreSQL majors are **16, 17, 18, and 19**. PostgreSQL 19 starts at
+**19.0** (`REL_19_0`); upstream sync discovers subsequent stable patch releases.
+
 ## Packaging Contract
 
 The base package contains upstream PostgreSQL plus all contrib extensions (pgcrypto, postgres_fdw, hstore, etc.).
@@ -87,6 +90,23 @@ Build for an explicit target:
 ```bash
 scripts/ci/build_portable_postgresql.sh --major 17 --target unknown-linux_x86_64
 ```
+
+## PostgreSQL 19 Deployment
+
+Build PostgreSQL 19 locally with `scripts/run_local_build.sh --major 19`.
+The release workflow builds Linux and Windows archives for every tracked major.
+To publish only PostgreSQL 19 from a ref containing its release configuration:
+
+```bash
+gh workflow run release-and-publish.yml --ref main --field majors=19 --field publish=true
+```
+
+The initial release tag is `postgresql-19.0`. Base archives are named
+`postgresql-portable-19.0-unknown-linux_x86_64.tar.gz` and
+`postgresql-portable-19.0-windows_x86_64.zip`, with separate extension overlays
+and SHA256 checksum files. The PostgreSQL 19 `pg_hint_plan` overlay uses
+`REL19_1_9_0`, `pg_cron` uses `v1.6.8`, and `pgvector` uses `v0.8.7`;
+existing platform exclusions still apply.
 
 ## Automatic Upstream Sync
 

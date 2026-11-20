@@ -3,7 +3,8 @@
     "tracked_majors": [
       "16",
       "17",
-      "18"
+      "18",
+      "19"
     ],
     "upstream_git_repo": "https://github.com/postgres/postgres.git",
     "source_tarball_url_template": "https://ftp.postgresql.org/pub/source/v{version}/postgresql-{version}.tar.gz",
@@ -19,6 +20,10 @@
       "18": {
         "tag": "REL_18_7",
         "version": "18.7"
+      },
+      "19": {
+        "tag": "REL_19_0",
+        "version": "19.0"
       }
     }
   },
@@ -79,6 +84,9 @@
     "pg_cron": {
       "repo": "https://github.com/citusdata/pg_cron.git",
       "ref": "v1.6.7",
+      "refs": {
+        "19": "v1.6.8"
+      },
       "skip_targets": [
         "windows_x86_64"
       ],
@@ -93,7 +101,8 @@
       "refs": {
         "16": "REL16_1_6_2",
         "17": "REL17_1_7_1",
-        "18": "REL18_1_8_0"
+        "18": "REL18_1_8_0",
+        "19": "REL19_1_9_0"
       },
       "notes": [
         "Requires shared_preload_libraries = 'pg_hint_plan'."
@@ -109,6 +118,9 @@
     "pgvector": {
       "repo": "https://github.com/pgvector/pgvector.git",
       "ref": "v0.8.1",
+      "refs": {
+        "19": "v0.8.7"
+      },
       "sql_name": "vector",
       "notes": [
         "Enable with CREATE EXTENSION vector."
