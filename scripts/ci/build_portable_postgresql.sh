@@ -296,12 +296,23 @@ configure_postgresql() {
 
   pushd "$build_dir" >/dev/null
   if [[ "${TARGET}" == *windows* ]]; then
+    # PostgreSQL 19's libpq_check.pl tests -x on NM before its Windows skip.
+    # Native UCRT Perl needs the actual .exe filename, rather than MSYS2's
+    # extensionless command path. Use a Windows path for that native file test.
+    local nm_path
+    nm_path="$(command -v nm)"
+    if [[ -f "${nm_path}.exe" ]]; then
+      nm_path="${nm_path}.exe"
+    fi
+    nm_path="$(cygpath -m "$nm_path")"
+    perl -e 'die "NM is not executable: $ARGV[0]\n" unless -x $ARGV[0]' "$nm_path"
+
     # MSYS2 normally rewrites path-like arguments for native programs. PostgreSQL
     # records configure arguments in src/common/config_info.c, so a converted
     # --prefix=D:\... value becomes invalid C string content (for example, \uc).
     # Exclude only --prefix from conversion; keep conversion enabled for native
     # build tools such as UCRT Perl that need Windows paths for file arguments.
-    MSYS2_ARG_CONV_EXCL="--prefix=" \
+    NM="$nm_path" MSYS2_ARG_CONV_EXCL="--prefix=" \
       "${source_dir}/configure" --prefix="$install_root" ${configure_flags[@]+"${configure_flags[@]}"}
   else
     "${source_dir}/configure" --prefix="$install_root" ${configure_flags[@]+"${configure_flags[@]}"}
