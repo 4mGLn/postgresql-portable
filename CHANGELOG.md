@@ -10,3 +10,8 @@
 - Use `pg_cron` v1.6.8 for PostgreSQL 19 compatibility.
 - Use `pgvector` v0.8.7 for PostgreSQL 19 builds.
 - Document PostgreSQL 19 builds, release dispatch, and archive names.
+
+### Fixed
+
+- Pass an explicit Windows `nm.exe` path to configure for PostgreSQL 19's
+  libpq sanity check under native UCRT Perl.

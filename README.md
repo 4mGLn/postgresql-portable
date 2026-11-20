@@ -108,6 +108,9 @@ and SHA256 checksum files. The PostgreSQL 19 `pg_hint_plan` overlay uses
 `REL19_1_9_0`, `pg_cron` uses `v1.6.8`, and `pgvector` uses `v0.8.7`;
 existing platform exclusions still apply.
 
+Windows builds pass the explicit `nm.exe` path to configure so PostgreSQL 19's
+libpq sanity check can validate the tool with native UCRT Perl.
+
 ## Automatic Upstream Sync
 
 New PostgreSQL patch releases are picked up automatically:
